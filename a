@@ -1,0 +1,63 @@
+import re
+from method.mysql import Database
+from method.discount_method import DiscountExtract
+from concurrent.futures import ThreadPoolExecutor
+
+
+class Discount:
+    def __init__(self, table_name):
+        self.db = Database(table_name)
+
+    @staticmethod
+    def mini_number(data):
+        price_now = float(data['现价'])
+        price_old = float(data['原价'])
+        jifeng = DiscountExtract().process_jifen(data)
+        manjian = DiscountExtract().process_manjian(data)
+        manzhe = DiscountExtract().process_manzhe(data)
+        rebate_list = [manjian, manzhe]
+        if price_old == 0.0:
+            return 1
+        old_rebate = price_now/price_old
+        rebate_list.sort()
+        if rebate_list[0] < old_rebate:
+            rebate = rebate_list[0]-jifeng
+        else:
+            rebate = rebate_list[0] - jifeng
+        return rebate
+
+    def run(self):
+        current_first_id = 0
+        current_last_id = 0
+        while True:
+            subset = self.db.select_all_message(current_last_id, True)
+            if len(subset) <= 0:
+                break
+            current_first_id = subset[0]['idd']  # 结果集开始id
+            current_last_id = subset[-1]['idd']  # 结果集结束id
+            print("正在处理记录： %d - %d" % (current_first_id, current_last_id))
+
+            for data in subset:
+                id = data['idd']
+                if data['促销信息'] is None:
+                    try:
+                        rebate = float(data['现价'])/float(data['原价'])
+                    except:
+                        rebate = 1
+                else:
+                    if data['促销信息'] != '':
+                        if data['原价'] != '0':
+                            rebate = self.mini_number(data)
+                    else:
+                        try:
+                            rebate = float(data['现价']) / float(data['原价'])
+                        except:
+                            rebate = 1
+                print(rebate)
+                self.db.update_discount(id, rebate)
+            self.db.commit()
+
+
+if __name__ == '__main__':
+    table_name = "Sheet1"
+    Discount(table_name).run()
