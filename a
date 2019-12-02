@@ -1,32 +1,9 @@
-import requests
-
-# 要访问的目标网页
-page_urls = ["http://dev.kdlapi.com/testproxy",
-             "https://dev.kdlapi.com/testproxy",
-             ]
-
-# 隧道服务器
-tunnel_host = "mytunnelhost"
-tunnel_port = "mytunnelport"
-
-# 隧道id和密码
-tid = "t17490751237210"
-password = "a11cm5pd"
-
-proxies = {
-        "http": "http://%s:%s@%s:%s/" % (tid, password, tunnel_host, tunnel_port),
-        "https": "http://%s:%s@%s:%s/" % (tid, password, tunnel_host, tunnel_port)
-    }
-
 headers = {
-    "Accept-Encoding": "Gzip",  # 使用gzip压缩传输数据让访问更快
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_1_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/7.0.8(0x17000820) NetType/4G Language/zh_CN',
+    'Referer': 'https://servicewechat.com/wxc341b03f979e49ad/74/page-frame.html',
 }
+url = 'https://wx-shangou.meituan.com/quickbuy/v1/poi/channelpage?wm_dtype=iPhone%208%20(GSM%2BCDMA)<iPhone10%2C1>&wm_dversion=7.0.8&wm_uuid=1201408347312709668&wm_visitid=f0a70555-89a9-4d48-8c00-ff9825ee6a9d&wm_appversion=2.8.4&req_time=1575274255774&waimai_sign=%2F&wm_longitude=116312086&wm_latitude=40034040&wm_actual_longitude=0&wm_actual_latitude=0&riskLevel=71&partner=214&rc_app=82&platform=13&rc_platform=13&uuid=1201408347312709668&open_id=ohZjl5bFUMgKaV8oiCgxYDDuuL3I&category_type=102604&_token=eJxVj0tvo0AQhP8LV4iAwcNgSznYZsBAWPM2EOVAgGAw5o1NWO1%2FX6y1tLtSq7%2BqVtWhfxKdkhAblmEYlqeIoV80RBAgDnJrsEYUEf%2B9rQCEAmAo4rPzRGLzziFIQQg%2FHgdr8e8IMhTLsswH9Y8Eq2UeGWWJEE2UpT0dn6OqSsuXh3up%2F7ME9czkVZJOfzax1K%2FOUl94eTJ6cniyz7OK2BCpOrGFMGiTuHXP5bq8Ys8cDPfihLVb7Lezpililhe12psAuRbKTwxfopTroqK4D9yZvNN0GML2c9VeOXukEybMFVEyWfHsaPCmhjfu2%2Bve%2FFZIvDgavyxZ96cUwjGd0Uhm8jHheNDZdqA0cetz6aD6GJ8apwmBk9WzfxAkQZPJTgm8ySqysjhIR%2Fc0ovU8znrkX2TDX2OlV4NtndfFvD9j3Z7u6jBEgPFCZoiqqzw0vt2ma7Y1Q5qnb7ot5tjxmNgdY9CMbO8yvZ03%2B%2BObyoGk9iOUhVD9UWJkAL6NWX1W%2BPHABlVOLm%2FcCiEHeDVZX84KxaH4jV2FvjSmifN9ZWm0DXaxc9e3lmyQBimVSRfMt2Y3X6Q5UO6SMkiqKerttsH73eGa7nVNz%2F2TPTvCDmPbMLavr8Sv37WCwH0%3D&wm_ctype=sg_wxapp'
+response = requests.post(url, headers=headers, verify=False)
+print(response.text)
 
-for url in page_urls:
-    r = requests.get(url, proxies=proxies, headers=headers)
-
-    print (r.status_code)  # 获取Reponse的返回码
-
-    if r.status_code == 200:
-        r.enconding = "utf-8"  # 设置返回内容的编码
-        print (r.content)  # 获取页面内容
+'wm_dtype=iPhone%208%20(GSM%2BCDMA)%3CiPhone10%2C1%3E&wm_dversion=7.0.8&wm_uuid=1201408347312709668&wm_visitid=f0a70555-89a9-4d48-8c00-ff9825ee6a9d&wm_appversion=2.8.4&req_time=1575274526048&waimai_sign=%2F&wm_longitude=116312086&wm_latitude=40034040&wm_actual_longitude=0&wm_actual_latitude=0&riskLevel=71&partner=214&rc_app=82&platform=13&rc_platform=13&uuid=1201408347312709668&open_id=ohZjl5bFUMgKaV8oiCgxYDDuuL3I&wmpoiid=949532564678978&_token=eJxdj12PojAYhf8Lt3RiP2iBSeYCRQWZQUUdXCdzAYiICiJfKpv971t1XM0mTfq8p6ftOb%2BF3FwKrwhCiBgQyoIzlSmWCSUqVmUgBA9NophBWQKCn3%2FqwusXkSmglH5fBIfPXzKFACEEv8ETYomvi8fkFqGo%2FJc8LEqvyr20bD3wpfT84v9ZAELmReGz%2FoQCfzWZXl4lUAaYqtxOIARYIZywSgGB9EoYEIzuRKQ7SexKKiDopkF%2BKl9IkQBh1xsK1xTphyR41yR%2Bg3%2B%2FvXzPd%2B8WgwGkgDoOjxcX5fb7IKkAy7eBu8vn0AA9YgP0CA7QIzp4Cv9gif3wtcAPXyvc%2BFYCPNX4x7wIeKrCmccq4igVXoVwcEIbVL4foTZbj1SLzeyxPTKKxaEVdUorjjvQ3B%2B0%2BkyzApazpBL9CUrVerYz8giLhi95iw%2F0sfIttMzr5iDOP%2B05k8Jd5ZahMw2bIF9C0oSqVMNBdEiYm%2FuWeTJ7tpdY5DS1Fk5%2F6i3sTjePlNV%2Bg43Vsgr2B0dPe2lP%2F4jMeB%2BExD8mcuGm3Zm6QuO40SItNnejrvsrws6H06s3VmVDpmReOpv7k6wqmII8vZVUjAxzqa2zanPemu6pgE22sujZXJvHgjWs8%2BnirJTLtrFNxIFIK%2BoWcncx3LBWvTu7Z7HWj2ILm%2Ba0NHqkjpantW2eumsxjTXNGvfPfgupWtzFuma0nbppHbdZPR9WbDyRtcDqzE5b0%2BsvhkHcW281o%2BdMzH5WBo25GmmGfPSawcBKEv29Uw3awVRX2vYyHhba25vw5y84Lwb%2F&wm_ctype=sg_wxapp'
