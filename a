@@ -1,7 +1,0 @@
-        while 1:
-            try:
-                session.get(url, headers=headers, timeout=2, proxies={'https': conn.randomOneIp('proxy:new_ip_list')})
-                html_set_cookie = requests.utils.dict_from_cookiejar(session.cookies)
-                return html_set_cookie['iuuid']
-            except:
-                pass
