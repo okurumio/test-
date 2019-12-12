@@ -1,72 +1,125 @@
-from method.mysql import Database
-import threading
-import re
+import pymysql
+
+# host='114.55.84.165'
+# password='Super@inter3i'
 
 
-class BrandLabel(threading.Thread):
-    def __init__(self, start_id, stop_id, thread_id):
-        threading.Thread.__init__(self)
-        self.db = Database(table_name)
-        self.start_id = start_id
-        self.stop_id = stop_id
-        self.thread_id = thread_id
+class Database(object):
+    def __init__(self, table_name):
+        self.dataList = list()
+        self.table_name = table_name
+        self.connection = pymysql.connect(host='114.55.84.165',
+                                          user='root',
+                                          password='Super@inter3i',
+                                          db='huarun',
+                                          charset='utf8mb4',
+                                          cursorclass=pymysql.cursors.DictCursor)
+        self.cursor = self.connection.cursor(pymysql.cursors.DictCursor)
 
-    @staticmethod
-    def get_label():
-        old = ['怡宝','农夫山泉','冰露','娃哈哈','康师傅','百岁山','景田','屈臣氏','恒大冰泉','依云','昆仑山','今麦郎','优悦','爱夸',
-               '巴黎水','天缘道','曼泰吉','五丰','柴火大院','十月稻田',',福临门','金龙鱼','御道','太粮','凯旋1664','嘉士伯','燕京',
-               '喜力','雪花','青岛','健力士','乐堡','科罗娜','福佳','百威','哈尔滨']
-        new = [{'怡宝':'饮用水'},{'农夫山泉':'饮用水'},{'冰露':'饮用水'},{'娃哈哈':'饮用水'},{'康师傅':'饮用水'},{'百岁山':'饮用水'},
-               {'景田':'饮用水'},{'屈臣氏':'饮用水'},{'恒大冰泉':'饮用水'},{'依云':'饮用水'},{'昆仑山':'饮用水'},{'今麦郎':'饮用水'},
-               {'优悦':'饮用水'},{'爱夸':'饮用水'},{'冰露':'饮用水'},{'天缘道':'大米'},{'曼泰吉':'大米'},{'五丰':'大米'},
-               {'柴火大院':'大米'},{'十月稻田':'大米'},{'福临门':'大米'},{'金龙鱼':'大米'},{'御道':'大米'},{'太粮':'大米'},
-               {'凯旋1664': '啤酒'},{'嘉士伯': '啤酒'},{'燕京': '啤酒'},{'喜力': '啤酒'},{'雪花': '啤酒'},{'青岛': '啤酒'},
-               {'健力士': '啤酒'},{'乐堡': '啤酒'},{'科罗娜': '啤酒'},{'福佳': '啤酒'},{'百威': '啤酒'},{'哈尔滨': '啤酒'},]
-        return old, new
+    def commit(self):
+        return self.connection.commit()
 
-    def run(self):
-        old, new = self.get_label()
-        current_first_id = 0
-        current_last_id = self.start_id
-        while 1:
-            lists = self.db.select_all(current_last_id, True)
-            if len(lists) <= 0:
-                break
-            current_first_id = lists[0]['id']  # 结果集开始id
-            current_last_id = lists[-1]['id']  # 结果集结束id
-            print("线程"+str(self.thread_id)+"正在处理记录： %d - %d" % (current_first_id, current_last_id))
-            for list in lists:
-                count = 0
-                brand, category = '', ''
-                for j in old:
-                    if re.findall(j, list['product_name']) != []:
-                        dicts = new[count].items()
-                        for brand, category in dicts:
-                            brand, category = brand, category
-                        print(brand, category)
-                        break
-                    count += 1
-                if brand != '' or category != '':
-                    self.db.update_brand3(brand, category, list['id'])
+    def close_con(self):
+        return self.connection.close()
 
-    @staticmethod
-    def get_count():
-        db = Database(table_name)
-        count = db.select_all_count()
-        return count
+    def select_all_count(self):
+        sql = "SELECT COUNT(*) FROM %s" % (self.table_name)
+        self.cursor.execute(sql)
+        count = self.cursor.fetchall()
+        return count[0]['COUNT(*)']
 
+    # 评论标签
+    def select_all_comment(self, last_id, is_next):
+        if is_next:  # 上一页
+            sql = "SELECT id, 评论内容, 品类 FROM `%s` where id > %s limit 100" % (self.table_name, last_id)
+            self.cursor.execute(sql)
+            ret = self.cursor.fetchall()
+        else:  # 下一页
+            sql = "SELECT id, 评论内容, 品类 FROM `%s` where id < %s limit 100" % (self.table_name, last_id)
+            self.cursor.execute(sql)
+            ret = self.cursor.fetchall()
+            ret = list(reversed(ret))
+        return ret
 
-def start():
-    count = BrandLabel.get_count()
-    count_one = int(count / thread_num)
-    for i in range(thread_num):
-        start_id = count_one * i
-        stop_id = count_one * (i+1)
-        t = BrandLabel(start_id, stop_id, i+1)
-        t.start()
+    def comment_update(self, sign, value, id):
+        sql = "update %s set %s = '%s' where id = %d" % (self.table_name, sign, value, id)
+        self.cursor.execute(sql)
+        self.commit()
 
+    # 折扣
+    def select_all_message(self, last_id, is_next):
+        ret = None
+        if is_next:  # 上一页
+            sql = "SELECT id, 促销信息, 购买送积分, 满折扣, 满减, 原价, 现价 FROM `%s` where 原价 is not NULL and 现价 is not NULL and id > %s limit 100" % (self.table_name, last_id)
+            self.connection.ping(reconnect=True)
+            self.cursor.execute(sql)
+            ret = self.cursor.fetchall()
+        else:  # 下一页
+            sql = "SELECT id, 促销信息, 购买送积分, 满折扣, 满减, 原价, 现价 FROM `%s` where 原价 is not NULL and 现价 is not NULL and id < %s limit 100" % (self.table_name, last_id)
+            self.connection.ping(reconnect=True)
+            self.cursor.execute(sql)
+            ret = self.cursor.fetchall()
+            ret = list(reversed(ret))
+        return ret
 
-if __name__ == '__main__':
-    table_name = 'Sheet'
-    thread_num = 1
-    start()
+    def update_discount(self, id1, discount):
+        sql = "update %s set 折扣 = %s where id = %s " % (self.table_name, discount, id1)
+        self.cursor.execute(sql)
+        self.commit()
+
+    # 统计词频
+    def select_comment_by_brand(self, brand, attr, sign):
+        sql = "SELECT 评论内容 FROM `%s` WHERE 品牌 = '%s' AND %s = '%s'" % (self.table_name, brand, attr, sign)
+        self.cursor.execute(sql)
+        lists = self.cursor.fetchall()
+        return lists
+
+    # 商品标签
+    def select_all_goods(self, last_id, is_next):
+        if is_next:  # 上一页
+            sql = "SELECT id, 商品名称 FROM `%s` where id > %s limit 10" % (self.table_name, last_id)
+            self.connection.ping(reconnect=True)
+            self.cursor.execute(sql)
+            ret = self.cursor.fetchall()
+        else:  # 下一页
+            sql = "SELECT id, 商品名称 FROM `%s` where id < %s limit 10" % (self.table_name, last_id)
+            self.connection.ping(reconnect=True)
+            self.cursor.execute(sql)
+            ret = self.cursor.fetchall()
+            ret = list(reversed(ret))
+        return ret
+
+    def update_brand(self, sign, id1):
+        sql = "update %s set 地域 = '%s' where id = %s " % (self.table_name, sign, id1)
+        self.cursor.execute(sql)
+        self.commit()
+
+    def update_brand2(self, sign, id1):
+        sql = "update %s set 功能 = '%s' where id = %s " % (self.table_name, sign, id1)
+        self.cursor.execute(sql)
+        self.commit()
+
+    # 统计数量
+    def get_count(self, lable):
+        sql = "SELECT 品牌, count(*) FROM %s where %s = '正' group by 品牌" % (self.table_name, lable)
+        self.cursor.execute(sql)
+        lists = self.cursor.fetchall()
+        return lists
+
+    # 统计
+    def select_all(self, last_id, is_next):
+        if is_next:  # 上一页
+            sql = "SELECT id, product_name FROM `%s` where id > %s limit 100" % (self.table_name, last_id)
+            self.cursor.execute(sql)
+            ret = self.cursor.fetchall()
+        else:  # 下一页
+            sql = "SELECT id, product_name FROM `%s` where id < %s limit 100" % (self.table_name, last_id)
+            self.cursor.execute(sql)
+            ret = self.cursor.fetchall()
+            ret = list(reversed(ret))
+        return ret
+
+    def update_brand3(self, brand, category, id1):
+        sql = "update %s set brand = '%s', category = '%s' where id = %s " % (self.table_name, brand, category, id1)
+        self.cursor.execute(sql)
+        self.commit()
