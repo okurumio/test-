@@ -1,0 +1,98 @@
+import re
+import threading
+from method.mysql import Database
+from method.discount_method import DiscountExtract
+from concurrent.futures import ThreadPoolExecutor
+
+
+class Discount(threading.Thread):
+    def __init__(self, start_id, end_id, thread_id):
+        threading.Thread.__init__(self)
+        self.db = Database(table_name)
+        self.start_id = start_id
+        self.end_id = end_id
+        self.thread_id = thread_id
+
+    @staticmethod
+    def mini_number(data):
+        price_now = float(data['现价'])
+        price_old = float(data['原价'])
+        jifeng = DiscountExtract().process_jifen(data)
+        manjian = DiscountExtract().process_manjian(data)
+        manzhe = DiscountExtract().process_manzhe(data)
+        rebate_list = [manjian, manzhe]
+        if price_old == 0.0:
+            return 1
+        old_rebate = price_now/price_old
+        rebate_list.sort()
+        if rebate_list[0] < 0:
+            rebate = old_rebate-jifeng
+        else:
+            if rebate_list[0] < old_rebate:
+                rebate = rebate_list[0]-jifeng
+            else:
+                rebate = old_rebate-jifeng
+        return rebate
+
+    def run(self):
+        current_first_id = 0
+        current_last_id = self.start_id
+        while True:
+            subset = self.db.select_all_message(current_last_id, True)
+            if len(subset) <= 0:
+                break
+            current_first_id = subset[0]['id']  # 结果集开始id
+            current_last_id = subset[-1]['id']  # 结果集结束id
+            print("线程"+str(self.thread_id)+"正在处理记录： %d - %d" % (current_first_id, current_last_id))
+
+            for data in subset:
+                try:
+                    id = data['id']
+                    if data['促销信息'] is None:
+                        try:
+                            rebate = float(data['现价'])/float(data['原价'])
+                        except:
+                            rebate = 1
+                    else:
+                        if data['促销信息'] != '':
+                            if data['原价'] != '0':
+                                rebate = self.mini_number(data)
+                        else:
+                            try:
+                                rebate = float(data['现价']) / float(data['原价'])
+                            except:
+                                rebate = 1
+                    # print(rebate)
+                    self.db.update_discount(id, rebate)
+                except:
+                    pass
+            if current_last_id >= self.end_id:
+                break
+        self.db.close_con()
+
+    @staticmethod
+    def get_count():
+        db = Database(table_name)
+        count = db.select_all_count()
+        return count
+
+
+def start():
+    count = Discount.get_count()
+    count_one = int(count/max_workers)
+    for i in range(max_workers):
+        start_id = count_one*i
+        stop_id = count_one*(i+1)
+        t = Discount(start_id, stop_id, i)
+        t.start()
+
+
+if __name__ == '__main__':
+    table_name = "Sheet1"
+    max_workers = 4  # 最大线程数
+    start()
+
+    # work_number = 3000  # 一个线程操作条数
+    # start_list = [id*work_number for id in range(int(Discount.get_count()/work_number)+1)]
+    # with ThreadPoolExecutor(max_workers=4) as executor:
+    #     result = executor.map(Discount().run, start_list)
