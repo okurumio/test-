@@ -1,125 +1,80 @@
-import pymysql
+import requests
+import json
+import re
+import pymongo
+from su8 import connRedis
 
-# host='114.55.84.165'
-# password='Super@inter3i'
+
+def urlGet():
+    db.ctrip_url.drop()
+    collection = db['ctrip_url']
+    url = 'http://114.55.84.165:8081/api/super8/getHotelUrlInfo'
+    res = requests.get(url,)
+    res.encoding = 'utf-8'
+    res = json.loads(res.text.strip('var data='))
+    for i in range(1115):
+        ctripUrl = res['data'][i]['super8HotelInfo']['ctripUrl']
+        elongUrl = res['data'][i]['super8HotelInfo']['elongUrl']
+        hotelId = res['data'][i]['super8HotelInfo']['hotelId']
+        hotelName = res['data'][i]['super8HotelInfo']['hotelName']
+        meituanUrl = res['data'][i]['super8HotelInfo']['meituanUrl']
+        collection.insert({"hotelName": hotelName, "hotelId": hotelId, "ctripUrl": ctripUrl, "elongUrl": elongUrl, "meituanUrl": meituanUrl})
+        hotelId = res['data'][i]['rivals']
+        for j in hotelId:
+            hotelName = j["hotelName"]
+            hotelId = j["hotelId"]
+            ctripUrl = j["ctripUrl"]
+            elongUrl = j["elongUrl"]
+            meituanUrl = j["meituanUrl"]
+            collection.insert({"hotelName": hotelName, "hotelId": hotelId, "ctripUrl": ctripUrl, "elongUrl": elongUrl,
+                           "meituanUrl": meituanUrl})
 
 
-class Database(object):
-    def __init__(self, table_name):
-        self.dataList = list()
-        self.table_name = table_name
-        self.connection = pymysql.connect(host='114.55.84.165',
-                                          user='root',
-                                          password='Super@inter3i',
-                                          db='huarun',
-                                          charset='utf8mb4',
-                                          cursorclass=pymysql.cursors.DictCursor)
-        self.cursor = self.connection.cursor(pymysql.cursors.DictCursor)
+def urlClean():
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.100 Safari/537.36',
+        "Connection": "close",
+    }
+    db.meituan_url.drop()
+    meituan = db['meituan_url']
+    hotellist = db.ctrip_url.find(no_cursor_timeout=True)
+    for hotel in hotellist:
+        url = hotel['meituanUrl']
+        if url is not None:
+            i = 0
+            while i < 5:
+                try:
+                    response = requests.get(url, headers=headers, timeout=3).text
+                    break
+                except:
+                    i += 1
+            errorResponse = '<meta http-equiv="refresh" content="0; url=http://www.meituan.com/error/" />'
+            if response != errorResponse:
+                try:
+                    cityId = get_cityid(response)
+                    print("success")
+                    hotelName = hotel['hotelName']
+                    hotelId = hotel['hotelId']
+                    meituan.insert({'hotelName': hotelName, 'hotelId': hotelId, 'hotelUrl': url})
+                except:
+                    pass
 
-    def commit(self):
-        return self.connection.commit()
 
-    def close_con(self):
-        return self.connection.close()
+def get_cityid(response):
+    pattern = re.compile('window.__INITIAL_STATE__=(.*);')
+    a = pattern.findall(response)
+    data = json.loads(a[0])
+    try:
+        cityId = data['poiData']['cityId']
+    except:
+        qualificationInfo = data['poiExt']['qualificationInfo']['qualificationURL']
+        cityId = re.findall(r'cityId=(\d*)', qualificationInfo)[0]
+    return cityId
 
-    def select_all_count(self):
-        sql = "SELECT COUNT(*) FROM %s" % (self.table_name)
-        self.cursor.execute(sql)
-        count = self.cursor.fetchall()
-        return count[0]['COUNT(*)']
 
-    # 评论标签
-    def select_all_comment(self, last_id, is_next):
-        if is_next:  # 上一页
-            sql = "SELECT id, 评论内容, 品类 FROM `%s` where id > %s limit 100" % (self.table_name, last_id)
-            self.cursor.execute(sql)
-            ret = self.cursor.fetchall()
-        else:  # 下一页
-            sql = "SELECT id, 评论内容, 品类 FROM `%s` where id < %s limit 100" % (self.table_name, last_id)
-            self.cursor.execute(sql)
-            ret = self.cursor.fetchall()
-            ret = list(reversed(ret))
-        return ret
-
-    def comment_update(self, sign, value, id):
-        sql = "update %s set %s = '%s' where id = %d" % (self.table_name, sign, value, id)
-        self.cursor.execute(sql)
-        self.commit()
-
-    # 折扣
-    def select_all_message(self, last_id, is_next):
-        ret = None
-        if is_next:  # 上一页
-            sql = "SELECT id, 促销信息, 购买送积分, 满折扣, 满减, 原价, 现价 FROM `%s` where 原价 is not NULL and 现价 is not NULL and id > %s limit 100" % (self.table_name, last_id)
-            self.connection.ping(reconnect=True)
-            self.cursor.execute(sql)
-            ret = self.cursor.fetchall()
-        else:  # 下一页
-            sql = "SELECT id, 促销信息, 购买送积分, 满折扣, 满减, 原价, 现价 FROM `%s` where 原价 is not NULL and 现价 is not NULL and id < %s limit 100" % (self.table_name, last_id)
-            self.connection.ping(reconnect=True)
-            self.cursor.execute(sql)
-            ret = self.cursor.fetchall()
-            ret = list(reversed(ret))
-        return ret
-
-    def update_discount(self, id1, discount):
-        sql = "update %s set 折扣 = %s where id = %s " % (self.table_name, discount, id1)
-        self.cursor.execute(sql)
-        self.commit()
-
-    # 统计词频
-    def select_comment_by_brand(self, brand, attr, sign):
-        sql = "SELECT 评论内容 FROM `%s` WHERE 品牌 = '%s' AND %s = '%s'" % (self.table_name, brand, attr, sign)
-        self.cursor.execute(sql)
-        lists = self.cursor.fetchall()
-        return lists
-
-    # 商品标签
-    def select_all_goods(self, last_id, is_next):
-        if is_next:  # 上一页
-            sql = "SELECT id, 商品名称 FROM `%s` where id > %s limit 10" % (self.table_name, last_id)
-            self.connection.ping(reconnect=True)
-            self.cursor.execute(sql)
-            ret = self.cursor.fetchall()
-        else:  # 下一页
-            sql = "SELECT id, 商品名称 FROM `%s` where id < %s limit 10" % (self.table_name, last_id)
-            self.connection.ping(reconnect=True)
-            self.cursor.execute(sql)
-            ret = self.cursor.fetchall()
-            ret = list(reversed(ret))
-        return ret
-
-    def update_brand(self, sign, id1):
-        sql = "update %s set 地域 = '%s' where id = %s " % (self.table_name, sign, id1)
-        self.cursor.execute(sql)
-        self.commit()
-
-    def update_brand2(self, sign, id1):
-        sql = "update %s set 功能 = '%s' where id = %s " % (self.table_name, sign, id1)
-        self.cursor.execute(sql)
-        self.commit()
-
-    # 统计数量
-    def get_count(self, lable):
-        sql = "SELECT 品牌, count(*) FROM %s where %s = '正' group by 品牌" % (self.table_name, lable)
-        self.cursor.execute(sql)
-        lists = self.cursor.fetchall()
-        return lists
-
-    # 统计
-    def select_all(self, last_id, is_next):
-        if is_next:  # 上一页
-            sql = "SELECT id, product_name FROM `%s` where id > %s limit 100" % (self.table_name, last_id)
-            self.cursor.execute(sql)
-            ret = self.cursor.fetchall()
-        else:  # 下一页
-            sql = "SELECT id, product_name FROM `%s` where id < %s limit 100" % (self.table_name, last_id)
-            self.cursor.execute(sql)
-            ret = self.cursor.fetchall()
-            ret = list(reversed(ret))
-        return ret
-
-    def update_brand3(self, brand, category, id1):
-        sql = "update %s set brand = '%s', category = '%s' where id = %s " % (self.table_name, brand, category, id1)
-        self.cursor.execute(sql)
-        self.commit()
+if __name__ == '__main__':
+    conn = pymongo.MongoClient('localhost', 27017)
+    db = conn.su8
+    conn = connRedis.OPRedis()
+    urlGet()
+    urlClean()
