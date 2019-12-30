@@ -62,33 +62,19 @@ class MeiTuan(threading.Thread):
             except:
                 pass
 
-    def get_taken(self, url):
-        i = 0
+    def get_taken(self, hotel_name, hotel_id):
         time = datetime.datetime.now()
         start_time = time + datetime.timedelta(days=self.day)
         end_time = time + datetime.timedelta(days=self.day+1)
         start = int(start_time.timestamp() * 1000)
         end = int(end_time.timestamp() * 1000)
-        while i < 5:
-            try:
-                response = requests.get(url, headers=self.headers, proxies={'https': self.conn.randomOneIp('proxy:new_ip_list')}, timeout=3)
-                break
-            except:
-                i += 1
-                response = ''
-        if response != '':
-            response.encoding = 'utf-8'
-            pattern = re.compile('window.__INITIAL_STATE__=(.*);')
-            a = pattern.findall(response.text)
-            data = json.loads(a[0])
-            poiData = data['poiData']
-            taken = {}
-            taken["name"] = poiData['name']
-            taken["poiId"] = poiData['poiid']
-            taken["start"] = start
-            taken["end"] = end
-            taken["uuid"] = self.get_uuid()
-            return taken
+        taken = {}
+        taken["name"] = hotel_name
+        taken["poiId"] = hotel_id
+        taken["start"] = start
+        taken["end"] = end
+        taken["uuid"] = self.get_uuid()
+        return taken
 
     def get_tokon(self):
         time = int(datetime.datetime.now().timestamp() * 1000)
@@ -376,15 +362,16 @@ class MeiTuan(threading.Thread):
         urlList = db.meituan_url.find(no_cursor_timeout=True)
         start_day, end_date = self.get_crawtime(i)
         j = 0
-        for hotel in urlList:
+        for hotel in urlList[200:]:
             j += 1
             print(self.thread_id + str(j))
             hotelId = int(hotel['hotelId'])
+            hotel_name = hotel['hotelName']
             ordUrl = re.sub(r'\?(.*)?$', '', hotel['hotelUrl'])
             hotel_id = ''.join(re.findall(r"\d+", ordUrl))
             if hotel_id != '':
                 url = 'https://hotel.meituan.com/{id}/?ci={starttime}&co={endtime}'.format(id=hotel_id, starttime=start_day, endtime=end_date)
-                self.taken = self.get_taken(url)
+                self.taken = self.get_taken(hotel_name, hotel_id)
                 if self.taken is not None:
                     _tokon = self.get_tokon()
                     token = self.url_encode(_tokon).decode()
