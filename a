@@ -13,7 +13,6 @@ class MeiTuan(threading.Thread):
     def __init__(self, day, thread_id):
         threading.Thread.__init__(self)
         self.connection = pymysql.connect(host='114.55.84.165', user='root', password='Super@inter3i', db="su8", charset='utf8mb4')
-        self.cursor = self.connection.cursor()
         self.day = day
         self.thread_id = thread_id
         self.headers = {
@@ -355,27 +354,28 @@ class MeiTuan(threading.Thread):
 
     def run(self):
         table_name = 'meituan_url'
-        sql = "select * from {}".format(table_name)
-        self.cursor.execute(sql)
-        lists = self.cursor.fetchall()
-        j = 0
-        for hotel in lists[200:]:
-            j += 1
-            print(self.thread_id + str(j))
-            hotelId = int(hotel[2])
-            rivalId = int(hotel[3])
-            hotel_name = hotel[1]
-            ordUrl = re.sub(r'\?(.*)?$', '', hotel[4])
-            hotel_id = ''.join(re.findall(r"\d+", ordUrl))
-            if hotel_id != '':
-                self.taken = self.get_taken(hotel_name, hotel_id, hotelId, rivalId)
-                if self.taken is not None:
-                    _tokon = self.get_tokon()
-                    token = self.url_encode(_tokon).decode()
-                    data_url = 'https://ihotel.meituan.com/productapi/v2/prepayList?&_token={}&end={}&start={}&poiId={}&uuid={}&type=1&utm_medium=baiduProgram&version_name=8.7.0'.format(
-                        token, self.taken["end"], self.taken["start"], self.taken["poiId"], self.taken["uuid"])
-                    # print(data_url)
-                    hotel_list = self.spider(data_url)  # 爬虫主程序
+        with self.connection.cursor() as cursor:
+            sql = "select * from {}".format(table_name)
+            cursor.execute(sql)
+            lists = cursor.fetchall()
+            j = 0
+            for hotel in lists[200:]:
+                j += 1
+                print(self.thread_id + str(j))
+                hotelId = int(hotel[2])
+                rivalId = int(hotel[3])
+                hotel_name = hotel[1]
+                ordUrl = re.sub(r'\?(.*)?$', '', hotel[4])
+                hotel_id = ''.join(re.findall(r"\d+", ordUrl))
+                if hotel_id != '':
+                    self.taken = self.get_taken(hotel_name, hotel_id, hotelId, rivalId)
+                    if self.taken is not None:
+                        _tokon = self.get_tokon()
+                        token = self.url_encode(_tokon).decode()
+                        data_url = 'https://ihotel.meituan.com/productapi/v2/prepayList?&_token={}&end={}&start={}&poiId={}&uuid={}&type=1&utm_medium=baiduProgram&version_name=8.7.0'.format(
+                            token, self.taken["end"], self.taken["start"], self.taken["poiId"], self.taken["uuid"])
+                        # print(data_url)
+                        hotel_list = self.spider(data_url)  # 爬虫主程序
 
 
 if __name__ == '__main__':
