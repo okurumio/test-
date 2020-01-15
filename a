@@ -1,4 +1,3 @@
-import pymysql
 import threading
 import requests, zlib, base64
 import json, jsonpath
@@ -12,7 +11,6 @@ import re
 class MeiTuan(threading.Thread):
     def __init__(self, day, thread_id):
         threading.Thread.__init__(self)
-        self.connection = pymysql.connect(host='114.55.84.165', user='root', password='Super@inter3i', db="su8", charset='utf8mb4')
         self.day = day
         self.thread_id = thread_id
         self.headers = {
@@ -63,17 +61,16 @@ class MeiTuan(threading.Thread):
             except:
                 pass
 
-    def get_taken(self, hotel_name, hotel_id, hotelId, rivalId):
+    def get_taken(self, hotel_name, hotel_id, hotelId):
         time = datetime.datetime.now()
-        start_time = time + datetime.timedelta(days=self.day-2)
-        end_time = time + datetime.timedelta(days=self.day-1)
+        start_time = time + datetime.timedelta(days=self.day)
+        end_time = time + datetime.timedelta(days=self.day+1)
         start = int(start_time.timestamp() * 1000)
         end = int(end_time.timestamp() * 1000)
         taken = {}
         taken["name"] = hotel_name
         taken["poiId"] = hotel_id
         taken['hotelId'] = hotelId
-        taken['rivalId'] = rivalId
         taken["start"] = start
         taken["end"] = end
         taken["uuid"] = self.get_uuid()
@@ -143,8 +140,12 @@ class MeiTuan(threading.Thread):
             avprice = room_type['averagePrice']
             item['price'] = self.getPrice(paraExtInfos, poiId, goodsId, partnerId, roomId, avprice)
             item['rebate'] = '0'
-            item['hotel_id'] = int(self.taken['hotelId'])
-            item['rival_id'] = int(self.taken['rivalId'])
+            if self.taken['name'][:4] == "速8酒店":
+                item['hotel_id'] = int(self.taken['hotelId'])
+                item['rival_id'] = int('0')
+            else:
+                item['hotel_id'] = int('0')
+                item['rival_id'] = int(self.taken['hotelId'])
             item['source'] = "Meituan-美团"
             if room_type['tagName'] != '1':
                 item['channel'] = room_type['tagName']
@@ -197,8 +198,12 @@ class MeiTuan(threading.Thread):
                 avprice = aggregateGood['prepayGood']['averagePrice']
                 item['price'] = self.getPrice(paraExtInfos, poiId, goodsId, partnerId, roomId, avprice)
                 item['rebate'] = '0'
-                item['hotel_id'] = int(self.taken['hotelId'])
-                item['rival_id'] = int(self.taken['rivalId'])
+                if self.taken['name'][:4] == "速8酒店":
+                    item['hotel_id'] = int(self.taken['hotelId'])
+                    item['rival_id'] = int('0')
+                else:
+                    item['hotel_id'] = int('0')
+                    item['rival_id'] = int(self.taken['hotelId'])
                 item['source'] = "Meituan-美团"
                 if aggregateGood['prepayGood']['tagName'] != '1':
                     item['channel'] = aggregateGood['prepayGood']['tagName']
@@ -346,36 +351,32 @@ class MeiTuan(threading.Thread):
 
     def get_crawtime(self, i):
         today = datetime.date.today()
-        oneday = datetime.timedelta(days=i - 2)
-        enday = datetime.timedelta(days=i-1)
+        oneday = datetime.timedelta(days=i)
+        enday = datetime.timedelta(days=i + 1)
         start_day = str(today + oneday)
         end_date = str(today + enday)
         return start_day, end_date
 
     def run(self):
-        table_name = 'meituan_url'
-        with self.connection.cursor() as cursor:
-            sql = "select * from {}".format(table_name)
-            cursor.execute(sql)
-            lists = cursor.fetchall()
-            j = 0
-            for hotel in lists[200:]:
-                j += 1
-                print(self.thread_id + str(j))
-                hotelId = int(hotel[2])
-                rivalId = int(hotel[3])
-                hotel_name = hotel[1]
-                ordUrl = re.sub(r'\?(.*)?$', '', hotel[4])
-                hotel_id = ''.join(re.findall(r"\d+", ordUrl))
-                if hotel_id != '':
-                    self.taken = self.get_taken(hotel_name, hotel_id, hotelId, rivalId)
-                    if self.taken is not None:
-                        _tokon = self.get_tokon()
-                        token = self.url_encode(_tokon).decode()
-                        data_url = 'https://ihotel.meituan.com/productapi/v2/prepayList?&_token={}&end={}&start={}&poiId={}&uuid={}&type=1&utm_medium=baiduProgram&version_name=8.7.0'.format(
-                            token, self.taken["end"], self.taken["start"], self.taken["poiId"], self.taken["uuid"])
-                        # print(data_url)
-                        hotel_list = self.spider(data_url)  # 爬虫主程序
+        db = self.database()
+        urlList = db.meituan_url.find(no_cursor_timeout=True)
+        j = 0
+        for hotel in urlList[2500:]:
+            j += 1
+            print(self.thread_id + str(j))
+            hotelId = int(hotel['hotelId'])
+            hotel_name = hotel['hotelName']
+            ordUrl = re.sub(r'\?(.*)?$', '', hotel['hotelUrl'])
+            hotel_id = ''.join(re.findall(r"\d+", ordUrl))
+            if hotel_id != '':
+                self.taken = self.get_taken(hotel_name, hotel_id, hotelId)
+                if self.taken is not None:
+                    _tokon = self.get_tokon()
+                    token = self.url_encode(_tokon).decode()
+                    data_url = 'https://ihotel.meituan.com/productapi/v2/prepayList?&_token={}&end={}&start={}&poiId={}&uuid={}&type=1&utm_medium=baiduProgram&version_name=8.7.0'.format(
+                        token, self.taken["end"], self.taken["start"], self.taken["poiId"], self.taken["uuid"])
+                    # print(data_url)
+                    hotel_list = self.spider(data_url)  # 爬虫主程序
 
 
 if __name__ == '__main__':
