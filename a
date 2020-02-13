@@ -1,150 +1,91 @@
-import pymysql
+import threading
+from method.mysql import Database
+from method.discount_method import DiscountExtract
+from config import discount_config
+table_name = discount_config['new_table_name']
+thread_num = discount_config['thread_num']
 
 
-class Database(object):
-    def __init__(self, table_name):
-        self.dataList = list()
-        self.table_name = table_name
-        self.connection = pymysql.connect(host='114.55.84.165',
-                                          user='root',
-                                          password='Super@inter3i',
-                                          db='bxt_api',
-                                          charset='utf8mb4',
-                                          cursorclass=pymysql.cursors.DictCursor)
-        self.cursor = self.connection.cursor(pymysql.cursors.DictCursor)
+class Discount(threading.Thread):
+    def __init__(self, start_id, end_id, thread_id):
+        threading.Thread.__init__(self)
+        self.db = Database(table_name)
+        self.start_id = start_id
+        self.end_id = end_id
+        self.thread_id = thread_id
 
-    def commit(self):
-        return self.connection.commit()
+    @staticmethod
+    def mini_number(data):
+        price_now = float(data['现价'])
+        price_old = float(data['原价'])
+        jifeng = DiscountExtract().process_jifen(data)
+        manjian = DiscountExtract().process_manjian(data)
+        manzhe = DiscountExtract().process_manzhe(data)
+        rebate_list = [manjian, manzhe]
+        if price_old == 0.0:
+            return 1
+        old_rebate = price_now/price_old
+        rebate_list.sort()
+        if rebate_list[0] < 0:
+            rebate = old_rebate-jifeng
+        else:
+            if rebate_list[0] < old_rebate:
+                rebate = rebate_list[0]-jifeng
+            else:
+                rebate = old_rebate-jifeng
+        return rebate
 
-    def close_con(self):
-        return self.connection.close()
+    def run(self):
+        current_first_id = 0
+        current_last_id = self.start_id
+        while True:
+            subset = self.db.select_all_message(current_last_id)
+            if len(subset) <= 0:
+                break
+            current_first_id = subset[0]['id']  # 结果集开始id
+            current_last_id = subset[-1]['id']  # 结果集结束id
+            print("线程"+str(self.thread_id)+"正在处理记录： %d - %d" % (current_first_id, current_last_id))
 
-    def truncata(self, table_name):
-        sql = 'TRUNCATE TABLE {}'.format(table_name)
-        self.cursor.execute(sql)
+            for data in subset:
+                try:
+                    id = data['id']
+                    if data['促销信息'] is None:
+                        try:
+                            rebate = float(data['现价'])/float(data['原价'])
+                        except:
+                            rebate = 1
+                    else:
+                        if data['促销信息'] != '':
+                            if data['原价'] != '0':
+                                rebate = self.mini_number(data)
+                        else:
+                            try:
+                                rebate = float(data['现价']) / float(data['原价'])
+                            except:
+                                rebate = 1
+                    # print(rebate)
+                    self.db.update_discount(id, rebate)
+                except:
+                    pass
+            if current_last_id >= self.end_id:
+                break
 
-    def select_all_count(self):
-        sql = "SELECT COUNT(*) FROM %s" % (self.table_name)
-        self.cursor.execute(sql)
-        count = self.cursor.fetchall()
-        return count[0]['COUNT(*)']
-
-    # 评论标签
-    def select_all_comment(self, last_id):
-        sql = "SELECT id, 评论内容, 品类 FROM `%s` where id > %s limit 500" % (self.table_name, last_id)
-        self.cursor.execute(sql)
-        ret = self.cursor.fetchall()
-        return ret
-
-    def comment_update(self, sign, value, id):
-        sql = "update %s set %s = '%s' where id = %d" % (self.table_name, sign, value, id)
-        self.cursor.execute(sql)
-        self.commit()
-
-    # 折扣
-    def select_all_message(self, last_id):
-        sql = "SELECT id, 促销信息, 购买送积分, 满折扣, 满减, 原价, 现价 FROM `%s` where 原价 is not NULL and 现价 is not NULL and id > %s limit 500" % (self.table_name, last_id)
-        self.connection.ping(reconnect=True)
-        self.cursor.execute(sql)
-        ret = self.cursor.fetchall()
-        return ret
-
-    def update_discount(self, id1, discount):
-        sql = "update %s set 折扣 = %s where id = %s " % (self.table_name, discount, id1)
-        self.cursor.execute(sql)
-        self.commit()
-
-    def get_data(self, start_time, end_time, brand):
-        sql = "SELECT * FROM %s where crawl_time > %s and crawl_time < %s and brand like '%%%s%%'" % (self.table_name,start_time,end_time, brand)
-        self.cursor.execute(sql)
-        ret = self.cursor.fetchall()
-        return ret
-
-    def add(self, new_table_name,  dict):
-        sql = "INSERT INTO {} (月份,商品链接,抓取时间,平台,商品名称, 商品id, 现价, 原价, 月销量, 评论数量, 库存数量, 收藏数量, 商品评分, 品牌, 商品状态, 发货地, 促销信息, 商品描述, 商品规格, 支付方式, 服务承诺, 店铺名称, 店铺评分, 店铺id, 店铺链接, 商品详情) VALUES ('{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}')".format(new_table_name, dict['月份'], dict['商品链接'], dict['抓取时间'], dict['平台'], dict['商品名称'], dict['商品id'], dict['现价'], dict['原价'], dict['月销量'], dict['评论数量'], dict['库存数量'], dict['收藏数量'],dict['商品评分'],dict['品牌'],dict['商品状态'],dict['发货地'],dict['促销信息'],dict['商品描述'],dict['商品规格'],dict['支付方式'],dict['服务承诺'],dict['店铺名称'],dict['店铺评分'],dict['店铺id'],dict['店铺链接'],dict['商品详情'])
-        print(sql)
-        self.cursor.execute(sql)
-        self.commit()
-
-    # 折扣标签
-    def select_discount_label(self, last_id):
-        sql = "SELECT id, 促销信息 FROM %s where 促销信息 is not NULL and id > %s limit 100" % (self.table_name, last_id)
-        self.cursor.execute(sql)
-        ret = self.cursor.fetchall()
-        return ret
-
-    def update_discount_label(self, id, dict):
-        value = ''
-        for i in dict:
-            value += str(i) + "=" + "'" + str(i) + "'" + ', '
-        value = value[:-2]
-        if value != '':
-            sql = "update %s set %s where id = %s " % (self.table_name, value, id)
-            print(sql)
-            self.cursor.execute(sql)
-            self.commit()
-
-    # 统计词频
-    def select_comment_by_brand(self, brand, attr, sign):
-        sql = "SELECT 评论内容 FROM `%s` WHERE 品牌 = '%s' AND %s = '%s'" % (self.table_name, brand, attr, sign)
-        self.cursor.execute(sql)
-        lists = self.cursor.fetchall()
-        return lists
-
-    # 商品标签
-    def select_all_goods(self, last_id, is_next):
-        if is_next:  # 上一页
-            sql = "SELECT id, 商品名称 FROM `%s` where id > %s limit 100" % (self.table_name, last_id)
-            self.connection.ping(reconnect=True)
-            self.cursor.execute(sql)
-            ret = self.cursor.fetchall()
-        else:  # 下一页
-            sql = "SELECT id, 商品名称 FROM `%s` where id < %s limit 100" % (self.table_name, last_id)
-            self.connection.ping(reconnect=True)
-            self.cursor.execute(sql)
-            ret = self.cursor.fetchall()
-            ret = list(reversed(ret))
-        return ret
-
-    def update_brand(self, sign, id1):
-        sql = "update %s set 品类细分B = '%s' where id = %s " % (self.table_name, sign, id1)
-        self.cursor.execute(sql)
-        self.commit()
-
-    def update_brand3(self, brand, category, id1):
-        sql = "update %s set brand = '%s', category = '%s' where id = %s" % (self.table_name, brand, category, id1)
-        self.cursor.execute(sql)
-        self.commit()
-
-    # 统计数量
-    def get_count(self, lable):
-        sql = "SELECT 品牌, count(*) FROM %s where %s = '正' group by 品牌" % (self.table_name, lable)
-        self.cursor.execute(sql)
-        lists = self.cursor.fetchall()
-        return lists
-
-    # 统计
-    def select_all(self, last_id, is_next):
-        if is_next:  # 上一页
-            sql = "SELECT id, product_name FROM `%s` where id > %s limit 100" % (self.table_name, last_id)
-            self.cursor.execute(sql)
-            ret = self.cursor.fetchall()
-        else:  # 下一页
-            sql = "SELECT id, product_name FROM `%s` where id < %s limit 100" % (self.table_name, last_id)
-            self.cursor.execute(sql)
-            ret = self.cursor.fetchall()
-            ret = list(reversed(ret))
-        return ret
-
-    # 获取数量
-    def get_counts(self, group, stockval):
-        sql = "SELECT %s, COUNT(*) FROM %s where stock = '%s' and %s is not NULL GROUP BY %s" % (group, self.table_name, stockval, group, group)
-        self.cursor.execute(sql)
-        count = self.cursor.fetchall()
+    @staticmethod
+    def get_count():
+        db = Database(table_name)
+        count = db.select_all_count()
         return count
 
-    def get_all_counts(self, group):
-        sql = "SELECT %s, COUNT(*) FROM %s GROUP BY %s" % (group, self.table_name, group)
-        self.cursor.execute(sql)
-        count = self.cursor.fetchall()
-        return count
+
+def start():
+    count = Discount.get_count()
+    count_one = int(count/thread_num)
+    for i in range(thread_num):
+        start_id = count_one*i
+        stop_id = count_one*(i+1)
+        t = Discount(start_id, stop_id, i)
+        t.start()
+
+
+if __name__ == '__main__':
+    start()
