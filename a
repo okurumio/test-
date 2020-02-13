@@ -1,0 +1,68 @@
+from method.mysql import Database
+from config import discount_config
+import threading
+import re
+table_name = discount_config['new_table_name']
+thread_num = discount_config['thread_num']
+
+
+class DiscountLabel(threading.Thread):
+    def __init__(self, start_id, stop_id, thread_id):
+        threading.Thread.__init__(self)
+        self.db = Database(table_name)
+        self.start_id = start_id
+        self.stop_id = stop_id
+        self.thread_id = thread_id
+
+    def run(self):
+        old = (['满','减'],['满','省'],['每','减'],['每','用'],['送','积分'],['送','豆'],['购买','积分'],['聚划算'],['换购'],
+               ['满','赠'],['满','包邮'],['满','折扣'],['满', '折'],['满','单价'],['满','单件价'],['满','用'],['享','价'],['购买','价'])
+        new = ['满减','满减','满减','满减','购买送积分','购买送积分','购买送积分','聚划算','换购','满赠','满包邮','满折扣','满折扣','满单价','满单价','优惠券','限量特价','限量特价']
+        current_last_id = self.start_id
+        while True:
+            subset = self.db.select_discount_label(current_last_id)
+            if len(subset) <= 0:
+                break
+            current_first_id = subset[0]['id']  # 结果集开始id
+            current_last_id = subset[-1]['id']  # 结果集结束id
+            print("线程" + str(self.thread_id) + "正在处理记录： %d - %d" % (current_first_id, current_last_id))
+            for data in subset:
+                id = data['id']
+                content = data['促销信息']
+                if content != '':
+                    i = 0
+                    dict = {}
+                    for old_label in old:
+                        sign = ''
+                        for label in old_label:
+                            if re.findall(label, content) != []:
+                                sign = new[i]
+                            else:
+                                sign = ''
+                                break
+                        i += 1
+                        if sign != '':
+                            dict[sign] = sign
+                    self.db.update_discount_label(id, dict)
+            if current_last_id >= self.stop_id:
+                break
+
+    @staticmethod
+    def get_count():
+        db = Database(table_name)
+        count = db.select_all_count()
+        return count
+
+
+def start():
+    count = DiscountLabel.get_count()
+    count_one = int(count/thread_num)
+    for i in range(thread_num):
+        start_id = count_one*i
+        stop_id = count_one*(i+1)
+        t = DiscountLabel(start_id, stop_id, i)
+        t.start()
+
+
+if __name__ == '__main__':
+    start()
