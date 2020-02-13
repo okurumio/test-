@@ -1,68 +1,59 @@
 from method.mysql import Database
 from config import discount_config
-import threading
+import time
 import re
-table_name = discount_config['new_table_name']
+old_table_name = discount_config['old_table_name']
+new_table_name = discount_config['new_table_name']
+brands = discount_config['brands']
 thread_num = discount_config['thread_num']
+# today = int(time.time()) - int(time.time() - time.timezone) % 86400
+today = 1581523200
+yesterday = 1580918400
 
 
-class DiscountLabel(threading.Thread):
-    def __init__(self, start_id, stop_id, thread_id):
-        threading.Thread.__init__(self)
-        self.db = Database(table_name)
-        self.start_id = start_id
-        self.stop_id = stop_id
-        self.thread_id = thread_id
+class DiscountMain():
+    def __init__(self):
+        self.db = Database(old_table_name)
 
     def run(self):
-        old = (['满','减'],['满','省'],['每','减'],['每','用'],['送','积分'],['送','豆'],['购买','积分'],['聚划算'],['换购'],
-               ['满','赠'],['满','包邮'],['满','折扣'],['满', '折'],['满','单价'],['满','单件价'],['满','用'],['享','价'],['购买','价'])
-        new = ['满减','满减','满减','满减','购买送积分','购买送积分','购买送积分','聚划算','换购','满赠','满包邮','满折扣','满折扣','满单价','满单价','优惠券','限量特价','限量特价']
-        current_last_id = self.start_id
-        while True:
-            subset = self.db.select_discount_label(current_last_id)
-            if len(subset) <= 0:
-                break
-            current_first_id = subset[0]['id']  # 结果集开始id
-            current_last_id = subset[-1]['id']  # 结果集结束id
-            print("线程" + str(self.thread_id) + "正在处理记录： %d - %d" % (current_first_id, current_last_id))
+        self.db.truncata(new_table_name)
+        for brand in brands:
+            print('正在处理：'+str(brand))
+            subset = self.db.get_data(yesterday * 1000, today * 1000, brand)
             for data in subset:
-                id = data['id']
-                content = data['促销信息']
-                if content != '':
-                    i = 0
-                    dict = {}
-                    for old_label in old:
-                        sign = ''
-                        for label in old_label:
-                            if re.findall(label, content) != []:
-                                sign = new[i]
-                            else:
-                                sign = ''
-                                break
-                        i += 1
-                        if sign != '':
-                            dict[sign] = sign
-                    self.db.update_discount_label(id, dict)
-            if current_last_id >= self.stop_id:
-                break
-
-    @staticmethod
-    def get_count():
-        db = Database(table_name)
-        count = db.select_all_count()
-        return count
-
-
-def start():
-    count = DiscountLabel.get_count()
-    count_one = int(count/thread_num)
-    for i in range(thread_num):
-        start_id = count_one*i
-        stop_id = count_one*(i+1)
-        t = DiscountLabel(start_id, stop_id, i)
-        t.start()
+                dict = {}
+                dict['月份'] = '2月6-12日'
+                dict['商品链接'] = data['page_url']
+                dict['抓取时间'] = data['craw_date']
+                dict['平台'] = data['platform']
+                dict['商品名称'] = data['product_name']
+                dict['商品id'] = data['product_id']
+                dict['现价'] = re.findall(r'sku_current_price": (.+?),', data['product_sku_detail'])[0]
+                dict['原价'] = re.findall(r'sku_original_price": (.+?),', data['product_sku_detail'])[0]
+                dict['月销量'] = data['sales_num_month']
+                dict['评论数量'] = data['comments_count']
+                dict['库存数量'] = data['stock_num']
+                dict['收藏数量'] = data['collection_num']
+                dict['商品评分'] = data['cmt_star_level']
+                dict['品牌'] = data['brand']
+                dict['商品状态'] = data['stock']
+                dict['发货地'] = data['departure_address']
+                dict['促销信息'] = data['promotion']
+                dict['商品描述'] = data['coupon_description']
+                dict['商品规格'] = data['product_param']
+                dict['支付方式'] = data['payment_information']
+                dict['服务承诺'] = data['service_promise']
+                dict['店铺名称'] = data['shop_name']
+                dict['店铺评分'] = data['cmt_star_level']
+                dict['店铺id'] = data['shop_id']
+                dict['店铺链接'] = data['shop_url']
+                dict['商品详情'] = data['params']
+                try:
+                    self.db.add(new_table_name, dict)
+                except:
+                    pass
+        self.db.close_con()
 
 
 if __name__ == '__main__':
-    start()
+    DiscountMain().run()
