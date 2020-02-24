@@ -1,56 +1,61 @@
+import time, datetime
+import re
 import requests
 import json
-import time
-from coin import getTasks
 from copy import deepcopy
+from coin import getTasks
 from coin import connRedis
 
 
 def run():
-    keys = getTasks.getTasks().liandede()
+    keys = getTasks.getTasks().bitKan()
     db = getTasks.getTasks().getMongo()
+    headers = {
+        'Connection': 'keep-alive',
+        'Content-Type': 'application/json;charset=UTF-8',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36',
+        'uuid': '0248d62aa3211c3bd27e5ae9b7c25e83'
+    }
     conn = connRedis.OPRedis()
     item = {}
-    headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.100 Safari/537.36',
-            "Connection": "close",
-        }
-
     for i in keys:
-        url = 'https://www.chaindd.com/ajax/search/get?url=%2Fsearch%2Fquery%2Fgroup&data=if_keyword_highlight%3Dtrue%26subtype%3Dnews%26limit%3D20%26offset%3D0%26keyword%3D{}'.format(str(i['key']))
-        j = 0
-        while j < 5:
-            try:
-                response = requests.get(url, headers=headers, timeout=3, proxies={'https': conn.randomOneIp('proxy:new_ip_list')})
-                break
-            except:
-                j += 1
-                print(url + "请求失败")
+        url = 'https://be02.bihu.com/bihube-pc/bihu/search/sug'
+        data = {
+            "key": i,
+            "type": ["c"],
+            "pageNum": 1
+        }
+        response = requests.post(url, headers=headers, json=data, timeout=3, proxies={'https': conn.randomOneIp('proxy:new_ip_list')})
         data = json.loads(response.text)
-        lists = data['data']['news']
+        lists = data['data']['articleInfo']['articleList']
         for list in lists:
             item['post_title'] = list['title']
-            timeStamp = list['time_published']
+            timeStamp = list['createTime']
             timeArray = time.localtime(timeStamp)
             item['created_at'] = time.strftime("%Y--%m--%d %H:%M:%S", timeArray)
-            item['read_count'] = list['number_of_reads']
-            item['original_url'] = 'https://www.chaindd.com/search?q={}'.format(str(i['key']))
+            item['read_count'] = 0
+            item['original_url'] = 'https://bihu.com/search/?q={}&type=c'.format(i)
             item['page_url'] = item['original_url']
             item['source_host'] = ""
-            item['screen_name'] = list['author_name']
-            item['text'] = list['main']
+            item['screen_name'] = list['user']['userName']
+            item['text'] = list['brief']
             item['time'] = int(time.time())
-            item['floor'] = int(list['id'])
-            item['column'] = i['key']
-            item['platform'] = '区块链快讯'
+            item['floor'] = int(list['articleId'])
+            item['column'] = '火币'
+            item['platform'] = '币乎'
             item['column1'] = i['column1']
             item['originalPlatformId'] = i['originalPlatformId']
             item['keywordId'] = i['keywordId']
             item['reptileType'] = i['reptileType']
             item['contentType'] = i['contentType']
-            title = db.btc123.find_one({'post_title': item['post_title']})
+            title = db.bitkan.find_one({'post_title': item['post_title']})
             if title is None:
                 print(item)
-                getTasks.post_data(item)
-                db.btc123.insert(deepcopy(item))
-    print('btc:success')
+                # getTasks.post_data(item)
+                # db.bitkan.insert(deepcopy(item))
+
+        print('bitkan:success')
+
+
+if __name__ == '__main__':
+    run()
