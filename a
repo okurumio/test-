@@ -1,6 +1,4 @@
-
 import pymysql
-import threading
 import requests, zlib, base64
 import json, jsonpath
 from pymongo import *
@@ -12,7 +10,6 @@ import re
 
 class MeiTuan:
     def __init__(self, day, thread_id):
-        self.connection = pymysql.connect(host='114.55.84.165', user='root', password='Super@inter3i', db="su8", charset='utf8mb4')
         self.day = day
         self.thread_id = thread_id
         self.headers = {
@@ -29,7 +26,7 @@ class MeiTuan:
         self.password = "jj5bkto1"
         self.proxies = {
             "http": "http://%s:%s@%s:%s/" % (self.tid, self.password, self.tunnel_host, self.tunnel_port),
-            # "https": "http://%s:%s@%s:%s/" % (self.tid, self.password, self.tunnel_host, self.tunnel_port)
+            "https": "http://%s:%s@%s:%s/" % (self.tid, self.password, self.tunnel_host, self.tunnel_port)
         }
         client = MongoClient('localhost', 27017)
         self.database = client['su8']
@@ -65,7 +62,7 @@ class MeiTuan:
             except:
                 pass
 
-    def get_taken(self, hotel_name, hotel_id, hotelId, rivalId, score, scoreItemList):
+    def get_taken(self, hotel_name, hotel_id, hotelId, rivalId):
         time = datetime.datetime.now()
         start_time = time + datetime.timedelta(days=self.day)
         end_time = time + datetime.timedelta(days=self.day+1)
@@ -76,11 +73,6 @@ class MeiTuan:
         taken["poiId"] = hotel_id
         taken['hotelId'] = hotelId
         taken['rivalId'] = rivalId
-        taken['totalScore'] = score
-        taken['hygieneScore'] = scoreItemList[3]['score']
-        taken['serviceScore'] = scoreItemList[0]['score']
-        taken['placeScore'] = scoreItemList[2]['score']
-        taken['facilitiesScore'] = scoreItemList[1]['score']
         taken["start"] = start
         taken["end"] = end
         taken["uuid"] = self.get_uuid()
@@ -118,13 +110,12 @@ class MeiTuan:
              '&programName=hotel&propagateData=undefined&sdkVersion=8.7.0&start={}&type=1' \
              '&utm_medium=WEIXINPROGRAM&uuid={}' \
              '&version_name=10.14.800&wechatVersion=7.0.8'.format(self.taken['end'], self.taken['poiId'], self.taken['start'], uuid)
-
         _tokon = {
             "rId": 100039,
             "ts": time,
             "cts": time+13,
-            "brVD": [360,574],
-            "brR": [[720,1148],[720,1148],24,24],
+            "brVD": [360, 574],
+            "brR": [[720, 1148], [720, 1148], 24, 24],
             "bI": ["pages/poi/poi",
                    "pages/list/index"],
             "mT": [],
@@ -138,24 +129,13 @@ class MeiTuan:
     def get_idPriceDict(self, room_type_list, urlid):
         hotel_list = []
         item = {}
-        sourceitem = {}
         item['hotel_name'] = self.taken['name']
-        sourceitem['hotel_name'] = self.taken['name']
-        sourceitem['totalScore'] = self.taken['totalScore']
-        sourceitem['hygieneScore'] = self.taken['hygieneScore']
-        sourceitem['serviceScore'] = self.taken['serviceScore']
-        sourceitem['placeScore'] = self.taken['placeScore']
-        sourceitem['facilitiesScore'] = self.taken['facilitiesScore']
         item['rebate'] = '0'
         item['hotel_id'] = int(self.taken['hotelId'])
-        sourceitem['hotel_id'] = int(self.taken['hotelId'])
         item['rival_id'] = int(self.taken['rivalId'])
-        sourceitem['rival_id'] = int(self.taken['rivalId'])
         item['source'] = "Meituan-美团"
-        sourceitem['source'] = "Meituan-美团"
         item['crawlDate'] = str(datetime.date.today())
         item['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        sourceitem['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         for room_type in room_type_list:
             item['room_type'] = room_type['goodsName']
             poiId = room_type['goodsRoomModel']['poiId']
@@ -194,31 +174,19 @@ class MeiTuan:
             hotel_list.append(deepcopy(item))
         if len(hotel_list) != 0:
             print(hotel_list)
-            print(sourceitem)
-            self.upload(hotel_list, [sourceitem], urlid)
+            self.upload(hotel_list, urlid)
             self.database.meituan_data.insert(hotel_list)
 
     def get_mergelist(self, room_type_list, urlid):
         hotel_list = []
         item = {}
-        sourceitem = {}
         item['hotel_name'] = self.taken['name']
-        sourceitem['hotel_name'] = self.taken['name']
-        sourceitem['totalScore'] = self.taken['totalScore']
-        sourceitem['hygieneScore'] = self.taken['hygieneScore']
-        sourceitem['serviceScore'] = self.taken['serviceScore']
-        sourceitem['placeScore'] = self.taken['placeScore']
-        sourceitem['facilitiesScore'] = self.taken['facilitiesScore']
         item['rebate'] = '0'
         item['hotel_id'] = int(self.taken['hotelId'])
-        sourceitem['hotel_id'] = int(self.taken['hotelId'])
         item['rival_id'] = int(self.taken['rivalId'])
-        sourceitem['rival_id'] = int(self.taken['rivalId'])
         item['source'] = "Meituan-美团"
-        sourceitem['source'] = "Meituan-美团"
         item['crawlDate'] = str(datetime.date.today())
         item['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        sourceitem['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         for room_type in room_type_list:
             room_name = room_type['roomCellName']
             aggregateGoods = room_type['aggregateGoods']
@@ -260,8 +228,7 @@ class MeiTuan:
                 hotel_list.append(deepcopy(item))
         if len(hotel_list) != 0:
             print(hotel_list)
-            print(sourceitem)
-            self.upload(hotel_list, [sourceitem], urlid)
+            self.upload(hotel_list, urlid)
             self.database.meituan_data.insert(hotel_list)
 
     def get_cookie(self):
@@ -362,14 +329,11 @@ class MeiTuan:
         else:
             return []
 
-    def upload(self, hotel_list, sourcelist, urlid):
+    def upload(self, hotel_list, urlid):
         url = 'http://114.55.84.165:8081/api/super8/saveHotelData'
-        sourceurl = 'http://114.55.84.165:8081/api/super8/saveHotelScoreData'
         headers2 = {'Content-Type': 'application/json',
                     'Connection': 'close'}
         res = requests.post(url, headers=headers2, json=hotel_list)
-        r = requests.post(url=sourceurl, headers=headers2, json=sourcelist)
-        print(r.text)
         print(res.text)
         self.database.meituan_url.update({'_id': urlid}, {'$set': {self.thread_id: 1}})
 
@@ -379,18 +343,10 @@ class MeiTuan:
         start_day = str(today + oneday)
         return start_day
 
-    def get_grade(self, hotel_id):
-        url = 'https://ihotel.meituan.com/api/v2/comments/biz/poiReview?utm_medium=WEIXINPROGRAM&utm_campaign=entry%253DMTHotel_scene%253D1089&token=srfThs4CEOSKdhUU2o1j2-lclbsAAAAAyAkAACrh37E033qtnVnR7xaUg9JRpJR4ni56B0CvwVPuk6SOclypZrmXhTh2dF-RUESg2A&openId=odPDr0C3LQjKo5sKzDR4DC9sqvBY&userId=2643733635&userid=2643733635&uuid=3CA6484632F13ADF68BDB142B1418DF473D8BEB8F65DAB913BA372B31EDE5DF9&poiId={}&platform=2&querytype=4&openIdCipher=AwQAAABJAgAAAAEAAAAyAAAAPDBiGl7pKIztT2y7Z14kCpYqtcIELpyFo6%2BK73E32D2fcGISLoR08e%2BxsD0PxfuoQKh4c%2B8u0q%2B6bOi43wAAADgq8lpUtwrVXbkja9aLhpVgVf%2FlozK0lcP3JDt0zI4A01SRr0NXNeHfdKb3ZI8TxYuh2mPfhNs%2BQQ%3D%3D'.format(hotel_id)
-        response = requests.get(url, headers=self.headers, proxies=self.proxies)
-        data = json.loads(response.text)
-        score = data['Data']['score']
-        scoreItemList = data['Data']['scoreItemList']
-        return score, scoreItemList
-
     def run(self):
         urlList = [url for url in self.database.meituan_url.find()]
         j = 0
-        for hotel in urlList[325:1300]:
+        for hotel in urlList[0:900]:
             j += 1
             urlid = hotel['_id']
             hotel_name = hotel['hotel_name']
@@ -399,9 +355,8 @@ class MeiTuan:
             ordUrl = re.sub(r'\?(.*)?$', '', hotel['hotelUrl'])
             hotel_id = ''.join(re.findall(r"\d+", ordUrl))
             if hotel_id != '':
-                score, scoreItemList = self.get_grade(hotel_id)
                 try:
-                    self.taken = self.get_taken(hotel_name, hotel_id, hotelId, rivalId, score, scoreItemList)
+                    self.taken = self.get_taken(hotel_name, hotel_id, hotelId, rivalId)
                 except:
                     pass
                 if self.taken is not None:
@@ -415,4 +370,4 @@ class MeiTuan:
 
 if __name__ == '__main__':
     print(str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-    MeiTuan(1, 'thread1').run()
+    MeiTuan(2, 'thread2').run()
