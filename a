@@ -1,13 +1,464 @@
-Host ihotel.meituan.com
-Connection keep-alive
-Content-Length 385
-X-Bd-Traceid 8f2293d5b28246ab82210384104202fd
-Content-Type application/json
-X-BD-QUIC 1
-X-BDBoxApp-NetEngine 3
-User-Agent Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 swan/2.20.0 swan-baiduboxapp/11.24.0.18 baiduboxapp/11.24.0.18 (Baidu; P2 13.5.1)
-token 
-Accept */*
-X-TurboNet-Info 2.13.2795.217
-Referer https://smartapps.cn/MsG3GbBk7owisWluiXOIjXRgkEg5sgFu/1.2.5/page-frame.html
-Accept-Encoding gzip, deflate
+
+import pymysql
+import threading
+import requests, zlib, base64
+import json, jsonpath
+from pymongo import *
+import datetime
+from su8 import connRedis
+from copy import deepcopy
+from fake_useragent import UserAgent
+import re
+
+
+class MeiTuan:
+    def __init__(self, day, thread_id):
+        self.connection = pymysql.connect(host='114.55.84.165', user='root', password='Super@inter3i', db="su8", charset='utf8mb4')
+        self.day = day
+        self.thread_id = thread_id
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.100 Safari/537.36',
+            "Connection": "close",
+        }
+        self.conn = connRedis.OPRedis()
+        self.taken = None
+        # 隧道服务器
+        self.tunnel_host = "tps136.kdlapi.com"
+        self.tunnel_port = "15818"
+        # 隧道id和密码
+        self.tid = "t16948189012577"
+        self.password = "jj5bkto1"
+        self.proxies = {
+            "http": "http://%s:%s@%s:%s/" % (self.tid, self.password, self.tunnel_host, self.tunnel_port),
+            # "https": "http://%s:%s@%s:%s/" % (self.tid, self.password, self.tunnel_host, self.tunnel_port)
+        }
+        client = MongoClient('localhost', 27017)
+        self.database = client['su8']
+
+        self.ua = UserAgent()
+
+    def url_encode(self, data, stringify=False):
+        if (stringify == True):
+            base_data = zlib.compress(data.encode())
+            data = base64.b64encode(base_data)
+            return data
+        else:
+            data = json.dumps(data).replace(' ', "")
+            return self.url_encode(data, True)
+
+    @staticmethod
+    def url_decode(data):
+        """token解码"""
+        if isinstance(data, str):
+            data = base64.b64decode(data)
+            base_data = zlib.decompress(data)
+            return base_data
+
+    def get_uuid(self):
+        url='https://bj.meituan.com/'
+        headers={
+            'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 11_0 like Mac OS X) AppleWebKit/604.1.34 (KHTML, like Gecko) Version/11.0 Mobile/15A5341f Safari/604.1',
+        }
+        session = requests.session()
+        while 1:
+            try:
+                # session.get(url, headers=headers, timeout=2, proxies={'https': self.conn.randomOneIp('proxy:new_ip_list')})
+                session.get(url, headers=headers, timeout=2, proxies=self.proxies)
+                html_set_cookie = requests.utils.dict_from_cookiejar(session.cookies)
+                return html_set_cookie['iuuid']
+            except:
+                pass
+
+    def get_taken(self, hotel_name, hotel_id, hotelId, rivalId, score, scoreItemList):
+        time = datetime.datetime.now()
+        start_time = time + datetime.timedelta(days=self.day)
+        end_time = time + datetime.timedelta(days=self.day+1)
+        start = int(start_time.timestamp() * 1000)
+        end = int(end_time.timestamp() * 1000)
+        taken = {}
+        taken["name"] = hotel_name
+        taken["poiId"] = hotel_id
+        taken['hotelId'] = hotelId
+        taken['rivalId'] = rivalId
+        taken['totalScore'] = score
+        taken['hygieneScore'] = scoreItemList[3]['score']
+        taken['serviceScore'] = scoreItemList[0]['score']
+        taken['placeScore'] = scoreItemList[2]['score']
+        taken['facilitiesScore'] = scoreItemList[1]['score']
+        taken["start"] = start
+        taken["end"] = end
+        taken["uuid"] = self.get_uuid()
+        return taken
+
+    def get_tokon(self):
+        time = int(datetime.datetime.now().timestamp() * 1000)
+        # 生成sign的值，并得到_token字典
+        sign = 'antiRepCityId=1&antiRepLocateCityId=1&antiRepPlatform=Android&end={}&fromOffline=false&lat=40.032038&lng=116.305609&mtShareId=&openId=odPDr0N6p3m8MAZM-h960Y7BAejU&' \
+               'poiId={}' \
+               '&programName=hotel&propagateData=undefined&sdkVersion=8.7.0&start={}&type=1' \
+               '&utm_medium=WEIXINPROGRAM&uuid={}' \
+               '&version_name=10.14.800&wechatVersion=7.0.8'.format(self.taken['end'], self.taken['poiId'], self.taken['start'], self.taken["uuid"])
+        _tokon = {
+            "rId": 100038,
+            "ts": time,
+            "cts": time + 13,
+            "brVD": [360, 574],
+            "brR": [[720, 1148], [720, 1148], 24, 24],
+            "bI": ["pages/poi/poi",
+                   "pages/list/index"],
+            "mT": [],
+            "kT": [],
+            "aT": [],
+            "tT": [],
+            "sign": self.url_encode(sign).decode()
+        }
+        return _tokon
+
+    def get_infotoken(self, uuid, poiId, goodsId, partnerId, roomId):
+        time = int(datetime.datetime.now().timestamp() * 1000)
+        # 生成sign的值，并得到_token字典
+        # sign = 'end={}&poiId=773931&start={}&type=1&utm_medium=baiduProgram&uuid={}&version_name=8.7.0'.format(self.taken['end'], self.taken['start'], self.taken["uuid"])
+        checkInDate, checkOutDate = self.get_date()
+        sign = 'checkInDate={}&checkOutDate={}&cityId=undefined&clientType=baiduProgram&clientVersion=8.7.0&goodsId={}&goodsType=1&partnerId={}&poiId={}&roomId={}&userId=&utm_campaign=AgroupBentry%3DMTHotel_scene%3D12010044&utm_medium=baiduProgram&uuid={}&version_name=8.7.0'.format(checkInDate, checkOutDate, goodsId, partnerId,  poiId, roomId, uuid)
+        _tokon = {
+            "rId": 100039,
+            "ts": time,
+            "cts": time + 13,
+            "brVD": [375, 603],
+            "brR": [[750, 1206], [750, 1206], 24, 24],
+            "bI": ["pages/poi/poi",
+                   "pages/list/index"],
+            "mT": ["315,187", "314,187", "314,188", "312,190", "310,193", "307,197", "303,203", "298,211",
+                   "292,222", "284,238", "276,257", "267,283", "257,309", "244,341", "229,373", "214,405",
+                   "199,437", "189,462", "187,477", "292,228", "291,228", "291,229", "290,230", "289,232",
+                   "288,235", "286,238", "284,242", "282,247", "279,252", "276,258"],
+            "kT": [],
+            "aT": ["59,66,view", "205,330,view", "264,78,view", "220,408,view"],
+            "tT": ["283,163,1", "264,118,1", "372,180,2"],
+            "sign": self.url_encode(sign).decode()
+        }
+        return _tokon
+
+    def get_idPriceDict(self, room_type_list, urlid):
+        hotel_list = []
+        item = {}
+        sourceitem = {}
+        item['hotel_name'] = self.taken['name']
+        sourceitem['hotel_name'] = self.taken['name']
+        sourceitem['totalScore'] = self.taken['totalScore']
+        sourceitem['hygieneScore'] = self.taken['hygieneScore']
+        sourceitem['serviceScore'] = self.taken['serviceScore']
+        sourceitem['placeScore'] = self.taken['placeScore']
+        sourceitem['facilitiesScore'] = self.taken['facilitiesScore']
+        item['rebate'] = '0'
+        item['hotel_id'] = int(self.taken['hotelId'])
+        sourceitem['hotel_id'] = int(self.taken['hotelId'])
+        item['rival_id'] = int(self.taken['rivalId'])
+        sourceitem['rival_id'] = int(self.taken['rivalId'])
+        item['source'] = "Meituan-美团"
+        sourceitem['source'] = "Meituan-美团"
+        item['crawlDate'] = str(datetime.date.today())
+        item['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        sourceitem['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        for room_type in room_type_list:
+            item['room_type'] = room_type['goodsName']
+            poiId = room_type['goodsRoomModel']['poiId']
+            goodsId = room_type['goodsRoomModel']['goodsId']
+            partnerId = room_type['goodsRoomModel']['partnerId']
+            roomId = room_type['goodsRoomModel']['roomId']
+            paraExtInfos = room_type['paraExtInfos']
+            avprice = room_type['averagePrice']
+            item['price'] = self.getPrice(paraExtInfos, poiId, goodsId, partnerId, roomId, avprice)
+            if room_type['tagName'] != '1':
+                item['channel'] = room_type['tagName']
+            else:
+                item['channel'] = "美团"
+            if item['channel'] is None:
+                item['channel'] = "美团"
+            item['breakfast'] = room_type['breakfast']
+            content = room_type['goodsBookInfos'][0]['content']
+            prod1 = ''
+            for c in content:
+                prod1 += c['targetName']
+            prod = str(item['room_type'])
+            p1 = re.compile(r'[[](.*?)[]]', re.S)  # 最小匹配
+            prod = re.findall(p1, prod)
+            if prod == []:
+                item['prod_name'] = prod1
+            else:
+                item['prod_name'] = prod1 + str(prod)
+            can_book = room_type['fullRoomDesc']
+            if can_book == "满房":
+                item['can_book'] = room_type['fullRoomDesc']
+            else:
+                item['can_book'] = '预订'
+            start_day = self.get_crawtime(self.day)
+            item['arrDate'] = start_day
+            print(item)
+            hotel_list.append(deepcopy(item))
+        if len(hotel_list) != 0:
+            print(hotel_list)
+            print(sourceitem)
+            # self.upload(hotel_list, [sourceitem], urlid)
+            # self.database.meituan_data.insert(hotel_list)
+
+    def get_mergelist(self, room_type_list, urlid):
+        hotel_list = []
+        item = {}
+        sourceitem = {}
+        item['hotel_name'] = self.taken['name']
+        sourceitem['hotel_name'] = self.taken['name']
+        sourceitem['totalScore'] = self.taken['totalScore']
+        sourceitem['hygieneScore'] = self.taken['hygieneScore']
+        sourceitem['serviceScore'] = self.taken['serviceScore']
+        sourceitem['placeScore'] = self.taken['placeScore']
+        sourceitem['facilitiesScore'] = self.taken['facilitiesScore']
+        item['rebate'] = '0'
+        item['hotel_id'] = int(self.taken['hotelId'])
+        sourceitem['hotel_id'] = int(self.taken['hotelId'])
+        item['rival_id'] = int(self.taken['rivalId'])
+        sourceitem['rival_id'] = int(self.taken['rivalId'])
+        item['source'] = "Meituan-美团"
+        sourceitem['source'] = "Meituan-美团"
+        item['crawlDate'] = str(datetime.date.today())
+        item['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        sourceitem['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        for room_type in room_type_list:
+            room_name = room_type['roomCellName']
+            aggregateGoods = room_type['aggregateGoods']
+            for aggregateGood in aggregateGoods:
+                item['room_type'] = room_name + aggregateGood['aggregateGoodName']
+                poiId = aggregateGood['prepayGood']['goodsRoomModel']['poiId']
+                goodsId = aggregateGood['prepayGood']['goodsRoomModel']['goodsId']
+                partnerId = aggregateGood['prepayGood']['goodsRoomModel']['partnerId']
+                roomId = aggregateGood['prepayGood']['goodsRoomModel']['roomId']
+                paraExtInfos = aggregateGood['prepayGood']['paraExtInfos']
+                avprice = aggregateGood['prepayGood']['averagePrice']
+                item['price'] = self.getPrice(paraExtInfos, poiId, goodsId, partnerId, roomId, avprice)
+                if aggregateGood['prepayGood']['tagName'] != '1':
+                    item['channel'] = aggregateGood['prepayGood']['tagName']
+                else:
+                    item['channel'] = "美团"
+                if item['channel'] is None:
+                    item['channel'] = "美团"
+                item['breakfast'] = aggregateGood['prepayGood']['breakfast']
+                content = aggregateGood['prepayGood']['goodsBookInfos'][0]['content']
+                prod1 = ''
+                for c in content:
+                    prod1 += c['targetName']
+                prod = str(item['room_type'])
+                p1 = re.compile(r'[[](.*?)[]]', re.S)  # 最小匹配
+                prod = re.findall(p1, prod)
+                if prod == []:
+                    item['prod_name'] = prod1
+                else:
+                    item['prod_name'] = prod1 + str(prod)
+                can_book = aggregateGood['prepayGood']['fullRoomDesc']
+                if can_book == "满房":
+                    item['can_book'] = aggregateGood['prepayGood']['fullRoomDesc']
+                else:
+                    item['can_book'] = '预订'
+                start_day = self.get_crawtime(self.day)
+                item['arrDate'] = start_day
+                print(item)
+                hotel_list.append(deepcopy(item))
+        if len(hotel_list) != 0:
+            print(hotel_list)
+            print(sourceitem)
+            self.upload(hotel_list, [sourceitem], urlid)
+            self.database.meituan_data.insert(hotel_list)
+
+    def get_cookie(self):
+        item = {}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.132 Safari/537.36',
+            'Referer': 'https://bj.meituan.com/'
+        }
+        url = 'https://i.meituan.com'
+        while 1:
+            try:
+                response = requests.get(url, proxies=self.proxies, headers=headers, timeout=5)
+                break
+            except:
+                pass
+        cookies = requests.utils.dict_from_cookiejar(response.cookies)
+        for i in cookies:
+            item[i] = cookies[i]
+        return item
+
+    def getPrice(self, paraExtInfos, poiId, goodsId, partnerId, roomId, averagePrice):
+        # 获取房间的token
+        # cookie = self.get_cookie()
+        # headers = {
+        #     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3',
+        #     'Accept-Language': 'zh-CN,zh;q=0.9',
+        #     'Cache-Control': 'max-age=0',
+        #     'Connection': 'keep-alive',
+        #     'Host': 'ihotel.meituan.com',
+        #     'Sec-Fetch-Mode': 'navigate',
+        #     'Sec-Fetch-Site': 'none',
+        #     'Sec-Fetch-User': '?1',
+        #     'Upgrade-Insecure-Requests': '1',
+        #     'Cookie': '_lxsdk_cuid=16e152bc9ffc8-0a20f5888339d2-5373e62-100200-16e152bca00c8; wm_order_channel=default; iuuid={}; ci={}; cityname={}; _lxsdk=03B31769F0D0665209C5173E30779BAE012940CB666FF42A3E769B834C55DB7A; mtcdn=K; IJSESSIONID={}; uuid={}; ndr=i.meituan.com; _lx_utm=utm_source%3DBaidu%26utm_medium%3Dorganic'.format(
+        #         cookie['iuuid'], cookie['ci'], cookie['cityname'], cookie['IJSESSIONID'], cookie['iuuid']),
+        #     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1',
+        #     "Accept-Encoding": "Gzip",  # 使用gzip压缩传输数据让访问更快
+        # }
+        while True:
+            uuid = self.get_uuid()
+            infotoken = self.get_infotoken(uuid, poiId, goodsId, partnerId, roomId)
+            # infotoken = self.url_encode(infotoken).decode()
+            # infourl = 'https://ihotel.meituan.com/productapi/v2/prepayGoodDetail?userid=&' \
+            #           '_token={}&checkInDate={}&checkOutDate={}&noPersistent=0&abTest=a&cityId=undefined&clientType=WEIXINPROGRAM&clientVersion=9.14.800&utm_medium=WEIXINPROGRAM&version_name=9.14.800&uuid={}&' \
+            #           'goodsId={}&goodsType=1&partnerId={}&poiId={}' \
+            #           '&roomId={}&userId=&utm_campaign=AgroupBentry%253DMTHotel_scene%253D1089&openId=odPDr0N6p3m8MAZM-h960Y7BAejU&antiRepPlatform=Android&wechatVersion=7.0.8&sdkVersion=8.7.0&antiRepCityId=1&antiRepLocateCityId=1&lat=40.032038&lng=116.305609&programName=hotel&fromOffline=false' \
+            #           '&paraExtInfos={}'.format(infotoken, self.taken["start"], self.taken["end"], self.taken["uuid"], goodsId, partnerId, poiId, roomId, paraExtInfos)
+            # token = self.get_tokon()
+            token1 = self.url_encode(infotoken).decode()
+            url = 'https://ihotel.meituan.com/group/v1/yf/productDetail?userid=&_token={}'.format(token1)
+            headers = {
+                'Content-Type': 'application/json',
+                'User-Agent': self.ua.chrome,
+                # 'Referer': 'https://servicewechat.com/wx7649daed8f2335c4/333/page-frame.html',
+                'Host': 'ihotel.meituan.com',
+                'Connection': 'keep-alive',
+                'Content-Length': '385',
+                'X-Bd-Traceid': '8f2293d5b28246ab82210384104202fd',
+                'X-BD-QUIC': '1',
+                'X-BDBoxApp-NetEngine': '3',
+                'token': '',
+                'Accept': '*/*',
+                'X-TurboNet-Info': '2.13.2795.217',
+                'Referer': 'https://smartapps.cn/MsG3GbBk7owisWluiXOIjXRgkEg5sgFu/1.2.5/page-frame.html',
+                'Accept-Encoding': 'gzip, deflate'
+
+            }
+            checkInDate, checkOutDate = self.get_date()
+            data = {"uuid": uuid, "goodsType": 1, "clientType": "baiduProgram", "version_name": "8.7.0",
+                    "partnerId": partnerId, "clientVersion": "8.7.0", "utm_medium": "baiduProgram", "poiId": poiId,
+                    "roomId": roomId, "checkOutDate": checkOutDate, "userId": "",
+                    "goodsId": goodsId,
+                    "checkInDate": checkInDate}
+            while 1:
+                try:
+                    response = requests.post(url, json=data,proxies=self.proxies, timeout=3,headers=headers)
+                    infodata = json.loads(response.text)
+                    price = infodata['data']['sellPrice']
+                    break
+                except:
+                    print('--------')
+                    # pass
+            print('averagePrice:{}'.format(averagePrice))
+            print('price:{}'.format(price))
+            if int(str(averagePrice)[:3]) != int(price):
+                return price
+            else:
+                print("价格错误")
+                pass
+                # print("ip:" + str(proxies) + "价格错误")
+
+    def spider(self, data_url, urlid):
+        cookie = self.get_cookie()
+        headers = {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+            'Cache-Control': 'max-age=0',
+            'Connection': 'keep-alive',
+            'Host': 'ihotel.meituan.com',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+            'Cookie': '_lxsdk_cuid=16e152bc9ffc8-0a20f5888339d2-5373e62-100200-16e152bca00c8; wm_order_channel=default; iuuid={}; ci={}; cityname={}; _lxsdk=03B31769F0D0665209C5173E30779BAE012940CB666FF42A3E769B834C55DB7A; mtcdn=K; IJSESSIONID={}; uuid={}; ndr=i.meituan.com; _lx_utm=utm_source%3DBaidu%26utm_medium%3Dorganic'.format(cookie['iuuid'], cookie['ci'], cookie['cityname'], cookie['IJSESSIONID'], cookie['iuuid']),
+            'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 11_0 like Mac OS X) AppleWebKit/604.1.34 (KHTML, like Gecko) Version/11.0 Mobile/15A5341f Safari/604.1',
+        }
+        i = 0
+        while i < 8:
+            try:
+                response = requests.get(url=data_url, headers=headers, proxies={'https': self.conn.randomOneIp('proxy:new_ip_list')}, timeout=3)
+                data = json.loads(response.text)
+                break
+            except:
+                i += 1
+        print(response.text)
+        if response.status_code == 200:
+            print('getlist:success')
+            try :
+                a = data['error']['code']
+                return []
+            except:
+                if data['goodsList'] is None:
+                    room_type_list = jsonpath.jsonpath(data, '$.mergeList.data')[0]
+                    return self.get_mergelist(room_type_list, urlid)
+                else:
+                    room_type_list = jsonpath.jsonpath(data, '$.goodsList.data')[0]
+                    return self.get_idPriceDict(room_type_list, urlid)
+        else:
+            return []
+
+    def upload(self, hotel_list, sourcelist, urlid):
+        url = 'http://114.55.84.165:8081/api/super8/saveHotelData'
+        sourceurl = 'http://114.55.84.165:8081/api/super8/saveHotelScoreData'
+        headers2 = {'Content-Type': 'application/json',
+                    'Connection': 'close'}
+        res = requests.post(url, headers=headers2, json=hotel_list)
+        r = requests.post(url=sourceurl, headers=headers2, json=sourcelist)
+        print(r.text)
+        print(res.text)
+        self.database.meituan_url.update({'_id': urlid}, {'$set': {self.thread_id: 1}})
+
+    def get_crawtime(self, i):
+        today = datetime.date.today()
+        oneday = datetime.timedelta(days=i)
+        start_day = str(today + oneday)
+        return start_day
+
+    def get_date(self):
+        today = datetime.date.today()
+        oneday = datetime.timedelta(days=self.day)
+        twoday = datetime.timedelta(days=self.day+1)
+        start_day = str(today + oneday)
+        end_day = str(today + twoday)
+        return start_day, end_day
+
+    def get_grade(self, hotel_id):
+        url = 'https://ihotel.meituan.com/api/v2/comments/biz/poiReview?utm_medium=WEIXINPROGRAM&utm_campaign=entry%253DMTHotel_scene%253D1089&token=srfThs4CEOSKdhUU2o1j2-lclbsAAAAAyAkAACrh37E033qtnVnR7xaUg9JRpJR4ni56B0CvwVPuk6SOclypZrmXhTh2dF-RUESg2A&openId=odPDr0C3LQjKo5sKzDR4DC9sqvBY&userId=2643733635&userid=2643733635&uuid=3CA6484632F13ADF68BDB142B1418DF473D8BEB8F65DAB913BA372B31EDE5DF9&poiId={}&platform=2&querytype=4&openIdCipher=AwQAAABJAgAAAAEAAAAyAAAAPDBiGl7pKIztT2y7Z14kCpYqtcIELpyFo6%2BK73E32D2fcGISLoR08e%2BxsD0PxfuoQKh4c%2B8u0q%2B6bOi43wAAADgq8lpUtwrVXbkja9aLhpVgVf%2FlozK0lcP3JDt0zI4A01SRr0NXNeHfdKb3ZI8TxYuh2mPfhNs%2BQQ%3D%3D'.format(hotel_id)
+        response = requests.get(url, headers=self.headers, proxies=self.proxies)
+        data = json.loads(response.text)
+        score = data['Data']['score']
+        scoreItemList = data['Data']['scoreItemList']
+        return score, scoreItemList
+
+    def run(self):
+        urlList = [url for url in self.database.meituan_url.find()]
+        j = 0
+        for hotel in urlList[0:900]:
+            if '暂停' not in hotel['hotel_name']:
+                j += 1
+                urlid = hotel['_id']
+                hotel_name = hotel['hotel_name']
+                print(str(j)+':'+hotel_name)
+                hotelId, rivalId = int(hotel['hotel_id']), int(hotel['rival_id'])
+                ordUrl = re.sub(r'\?(.*)?$', '', hotel['hotelUrl'])
+                hotel_id = ''.join(re.findall(r"\d+", ordUrl))
+                if hotel_id != '':
+                    score, scoreItemList = self.get_grade(hotel_id)
+                    try:
+                        self.taken = self.get_taken(hotel_name, hotel_id, hotelId, rivalId, score, scoreItemList)
+                    except:
+                        pass
+                    if self.taken is not None:
+                        _tokon = self.get_tokon()
+                        token = self.url_encode(_tokon).decode()
+                        data_url = 'https://ihotel.meituan.com/productapi/v2/prepayList?&_token={}&end={}&start={}&poiId={}&uuid={}&type=1&utm_medium=baiduProgram&version_name=8.7.0'.format(
+                            token, self.taken["end"], self.taken["start"], self.taken["poiId"], self.taken["uuid"])
+                        print(data_url)
+                        self.spider(data_url, urlid)  # 爬虫主程序
+            else:
+                print('{}---该店已暂停预定'.format(hotel['hotel_name']))
+
+
+if __name__ == '__main__':
+    print(str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    MeiTuan(1, 'thread1').run()
