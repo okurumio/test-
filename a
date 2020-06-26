@@ -1,43 +1,13 @@
-token = self.get_tokon()
-            token1 = self.url_encode(token).decode()
-            url = 'https://ihotel.meituan.com/group/v1/yf/productDetail?userid=&_token={}'.format(token1)
-            headers = {
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1',
-                'Referer': 'https://servicewechat.com/wx7649daed8f2335c4/333/page-frame.html'
-            }
-            data = {"uuid": self.taken["uuid"], "goodsType": 1, "clientType": "baiduProgram", "version_name": "8.7.0",
-                    "partnerId": partnerId, "clientVersion": "8.7.0", "utm_medium": "baiduProgram", "poiId": poiId,
-                    "roomId": roomId, "checkOutDate": {}, "userId": "",
-                    "utm_campaign": "AgroupBentry%3DMTHotel_scene%3D12010044", "goodsId": goodsId,
-                    "checkInDate": {}}
-            response = requests.post(url, json=data, headers=headers, proxies=self.proxies)
-            
-            
-            
-            
-    def get_tokon(self):
-        time = int(datetime.datetime.now().timestamp() * 1000)
-        # 生成sign的值，并得到_token字典
-        # sign = 'end={}&poiId=773931&start={}&type=1&utm_medium=baiduProgram&uuid={}&version_name=8.7.0'.format(self.taken['end'], self.taken['start'], self.taken["uuid"])
-        sign = 'checkInDate=2020-06-15&checkOutDate=2020-06-16&cityId=undefined&clientType=baiduProgram&clientVersion=8.7.0&goodsId=641566444&goodsType=1&partnerId=101083&poiId=5458046&roomId=157668225&userId=&utm_campaign=AgroupBentry%3DMTHotel_scene%3D12010044&utm_medium=baiduProgram&uuid=1A6E888B4A4B29B16FBA1299108DBE9CAAEFF48D68B57B522A1ACA453CEE3B0E&version_name=8.7.0'
-        # sign = 'antiRepCityId=1&antiRepLocateCityId=1&antiRepPlatform=Android&end={}&fromOffline=false&lat=40.032038&lng=116.305609&mtShareId=&openId=odPDr0N6p3m8MAZM-h960Y7BAejU&' \
-        #        'poiId={}' \
-        #        '&programName=hotel&propagateData=undefined&sdkVersion=8.7.0&start={}&type=1' \
-        #        '&utm_medium=WEIXINPROGRAM&uuid={}' \
-        #        '&version_name=10.14.800&wechatVersion=7.0.8'.format(self.taken['end'], self.taken['poiId'], self.taken['start'], self.taken["uuid"])
-        _tokon = {
-            "rId": 100039,
-            "ts": time,
-            "cts": time + 13,
-            "brVD": [375,603],
-            "brR": [[750,1206],[750,1206],24,24],
-            "bI": ["pages/poi/poi",
-                   "pages/list/index"],
-            "mT": ["315,187","314,187","314,188","312,190","310,193","307,197","303,203","298,211","292,222","284,238","276,257","267,283","257,309","244,341","229,373","214,405","199,437","189,462","187,477","292,228","291,228","291,229","290,230","289,232","288,235","286,238","284,242","282,247","279,252","276,258"],
-            "kT": [],
-            "aT": ["59,66,view","205,330,view","264,78,view","220,408,view"],
-            "tT": ["283,163,1","264,118,1","372,180,2"],
-            "sign": self.url_encode(sign).decode()
-        }
-        return _tokon
+Host ihotel.meituan.com
+Connection keep-alive
+Content-Length 385
+X-Bd-Traceid 8f2293d5b28246ab82210384104202fd
+Content-Type application/json
+X-BD-QUIC 1
+X-BDBoxApp-NetEngine 3
+User-Agent Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 swan/2.20.0 swan-baiduboxapp/11.24.0.18 baiduboxapp/11.24.0.18 (Baidu; P2 13.5.1)
+token 
+Accept */*
+X-TurboNet-Info 2.13.2795.217
+Referer https://smartapps.cn/MsG3GbBk7owisWluiXOIjXRgkEg5sgFu/1.2.5/page-frame.html
+Accept-Encoding gzip, deflate
