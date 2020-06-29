@@ -35,7 +35,7 @@ class MeiTuan:
         }
         client = MongoClient('localhost', 27017)
         self.database = client['su8']
-
+        self.cookie_data = ''
         self.ua = UserAgent()
 
     def url_encode(self, data, stringify=False):
@@ -336,14 +336,14 @@ class MeiTuan:
         # 转为字符串
         token = str(b_encode, encoding='utf-8')
         url = 'https://ihotel.meituan.com/group/v1/yf/productDetail?_token={}&uuid=&iuuid={}&userid=&utm_medium=touch&version_name=999.9&platformid=1'.format(
-            token, self.taken['uuid'])
+            token, self.cookie_data['iuuid'])
         headers = {
             "Accept-Encoding": "gzip, deflate, br",
             "Accept-Language": "zh-CN,zh;q=0.9",
             "Connection": "keep-alive",
             "Content-Length": "580",
             "Content-Type": "application/json; charset=UTF-8",
-            "Cookie": "IJSESSIONID=sj9c1xko5f171e0pvb68t00s5; iuuid=D67E8E57738EC6EDA0BA0DB2A0B0A0FF55C7805D71D9CD9D36674F166EECDC33; latlng=39.909948%2C116.47318%2C1593337625721; ci=1; cityname=%E5%8C%97%E4%BA%AC; ndr=i.meituan.com; _lxsdk_cuid=172fa52bcf8c8-0a349c0458845d-5437971-4a640-172fa52bcf8c8; _lxsdk=D67E8E57738EC6EDA0BA0DB2A0B0A0FF55C7805D71D9CD9D36674F166EECDC33; _lxsdk_s=172fa52bb4f-f46-a04-39c%7C%7C46",
+            "Cookie": "IJSESSIONID={}; iuuid={}; latlng=39.909948%2C116.47318%2C1593337625721; ci=1; cityname=%E5%8C%97%E4%BA%AC; ndr=i.meituan.com; _lxsdk_cuid=172fa52bcf8c8-0a349c0458845d-5437971-4a640-172fa52bcf8c8; _lxsdk=D67E8E57738EC6EDA0BA0DB2A0B0A0FF55C7805D71D9CD9D36674F166EECDC33; _lxsdk_s=172fa52bb4f-f46-a04-39c%7C%7C46".format(self.cookie_data['IJSESSIONID', self.cookie_data['iuuid']]),
             "Host": "ihotel.meituan.com",
             "Origin": "https://i.meituan.com",
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1"
@@ -426,6 +426,27 @@ class MeiTuan:
         scoreItemList = data['Data']['scoreItemList']
         return score, scoreItemList
 
+    def get_uuid1(self):
+        url = 'https://bj.meituan.com/'
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1',
+        }
+        session = requests.session()
+        while 1:
+            try:
+                session.get(url, headers=headers)
+                html_set_cookie = requests.utils.dict_from_cookiejar(session.cookies)
+                cookie_data = {
+                    "IJSESSIONID": html_set_cookie['IJSESSIONID'],
+                    "iuuid": html_set_cookie['iuuid'],
+                    "JSESSIONID": html_set_cookie['JSESSIONID'],
+                    "cityname": '%E5%8C%97%E4%BA%AC',
+                    "latlng": html_set_cookie['latlng']
+                }
+                return cookie_data
+            except:
+                pass
+
     def run(self):
         urlList = [url for url in self.database.meituan_url.find()]
         j = 0
@@ -439,6 +460,7 @@ class MeiTuan:
             hotel_id = ''.join(re.findall(r"\d+", ordUrl))
             if hotel_id != '':
                 score, scoreItemList = self.get_grade(hotel_id)
+                self.cookie_data = self.get_uuid1()
                 try:
                     self.taken = self.get_taken(hotel_name, hotel_id, hotelId, rivalId, score, scoreItemList)
                 except:
