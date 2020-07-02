@@ -169,7 +169,8 @@ class MeiTuan:
             roomId = room_type['goodsRoomModel']['roomId']
             paraExtInfos = room_type['paraExtInfos']
             avprice = room_type['averagePrice']
-            item['price'] = self.getPrice(poiId, goodsId, partnerId, roomId)
+            item['price'] = self.getPrice(poiId, goodsId, partnerId, roomId, avprice)
+            time.sleep(1)
             if room_type['tagName'] != '1':
                 item['channel'] = room_type['tagName']
             else:
@@ -200,8 +201,8 @@ class MeiTuan:
         if len(hotel_list) != 0:
             print(hotel_list)
             print(sourceitem)
-            # self.upload(hotel_list, [sourceitem], urlid)
-            # self.database.meituan_data.insert(hotel_list)
+            self.upload(hotel_list, [sourceitem], urlid)
+            self.database.meituan_data.insert(hotel_list)
 
     def get_mergelist(self, room_type_list, urlid):
         hotel_list = []
@@ -235,7 +236,8 @@ class MeiTuan:
                 roomId = aggregateGood['prepayGood']['goodsRoomModel']['roomId']
                 paraExtInfos = aggregateGood['prepayGood']['paraExtInfos']
                 avprice = aggregateGood['prepayGood']['averagePrice']
-                item['price'] = self.getPrice(poiId, goodsId, partnerId, roomId)
+                item['price'] = self.getPrice(poiId, goodsId, partnerId, roomId, avprice)
+                time.sleep(1)
                 if aggregateGood['prepayGood']['tagName'] != '1':
                     item['channel'] = aggregateGood['prepayGood']['tagName']
                 else:
@@ -266,8 +268,8 @@ class MeiTuan:
         if len(hotel_list) != 0:
             print(hotel_list)
             print(sourceitem)
-            # self.upload(hotel_list, [sourceitem], urlid)
-            # self.database.meituan_data.insert(hotel_list)
+            self.upload(hotel_list, [sourceitem], urlid)
+            self.database.meituan_data.insert(hotel_list)
 
     def get_cookie(self):
         item = {}
@@ -287,7 +289,8 @@ class MeiTuan:
             item[i] = cookies[i]
         return item
 
-    def getPrice(self, poiId, goodsId, partnerId, roomId):
+    def getPrice(self, poiId, goodsId, partnerId, roomId, avprice):
+        # proxies = {'https': self.conn.randomOneIp('proxy:new_ip_list')}
         t = time.time()
         ts = int(round(t * 1000))
         checkInDate, checkOutDate = self.get_date()
@@ -310,7 +313,7 @@ class MeiTuan:
             "clientVersion": "999.9",
             "propagateData": "{\"hap_key\":null,\"price\":\"+h+Rk9cShr2nypUrWlB0TQ==\",\"traceId\":\"8896148300185526626\",\"goodsStatus\":null,\"realGoodsStatus\":\"lIUtdvHM5mRi2ZKA4H37H0bpCJU6pdMcN8p0wH1HzgM=\",\"conId\":null,\"gs\":\"14VmSKUDV3qSoIOYNhKyHQ==\",\"contentTransparent\":null}"
         }
-        sign = "checkInDate={}&checkOutDate={}&cityId=1&clientType=touch&clientVersion=999.9&goodsId={}&goodsType=1&gpsCityId=1&lat=39.909948&lng=116.47318&noPersistent=0&partnerId={}&poiId={}&propagateData={}&requestType=0&roomId={}&userid=-1".format(checkInDate, checkOutDate, goodsId, partnerId, poiId, datainfo['propagateData'], roomId)
+        # sign = "checkInDate={}&checkOutDate={}&cityId=1&clientType=touch&clientVersion=999.9&goodsId={}&goodsType=1&gpsCityId=1&lat=39.909948&lng=116.47318&noPersistent=0&partnerId={}&poiId={}&propagateData={}&requestType=0&roomId={}&userid=-1".format(checkInDate, checkOutDate, goodsId, partnerId, poiId, datainfo['propagateData'], roomId)
         info_token = {
             "rId": 100004,
             "ver": "1.0.6",
@@ -326,8 +329,8 @@ class MeiTuan:
             "aT": ["492,1847,UL", "1183,489,I", "581,1845,UL"],
             "tT": [],
             "aM": "",
-            # "sign": "eJxVUVtPwyAY/S994GVOoXdMeHDTzOmm7qaJaWIIJW3TCgyoS2P879JuanzjO5xzvsPBYyVn9VxcU8uJD304hvHYT8EAP7b2P44Bq2w3zwkCrKm4sNtOcWJly8oT8My1qaQgGONzDAopc9PTgxBGCAdHYBAhUCgz/XFrqCWBU0CMwxQ0oiAIxedhEqAUCPnUmxrr7AkEimoruO5lGEYwQUDJqp9QjAPoA6WlooWL7aJT8pl5JVVvNe8y71K0TXOWeUpXjLsx80blaF1jtim1Lzq10y/NBG5XhGSeo1lNGZ/nAzGFSRy6aBBGEYyDJEnCgTO8Z2Opbc2fv+a0mf27yDwxmy4/9vevUb30VxdpjKqFXd/UT9GquJOjcrObBS+H69u1PFwdtzMpht0nz+JoM1mo27t4tMsPnb9cPqxDw1/jA/mV9B1tNRXGteSOJ/0X0HzfcnP8Lgi0lO+usRCnEUoj0Bquq5yMkfcNtCiocg=="
-            "sign": self.url_encode(sign).decode()
+            "sign": "eJxVUVtPwyAY/S994GVOoXdMeHDTzOmm7qaJaWIIJW3TCgyoS2P879JuanzjO5xzvsPBYyVn9VxcU8uJD304hvHYT8EAP7b2P44Bq2w3zwkCrKm4sNtOcWJly8oT8My1qaQgGONzDAopc9PTgxBGCAdHYBAhUCgz/XFrqCWBU0CMwxQ0oiAIxedhEqAUCPnUmxrr7AkEimoruO5lGEYwQUDJqp9QjAPoA6WlooWL7aJT8pl5JVVvNe8y71K0TXOWeUpXjLsx80blaF1jtim1Lzq10y/NBG5XhGSeo1lNGZ/nAzGFSRy6aBBGEYyDJEnCgTO8Z2Opbc2fv+a0mf27yDwxmy4/9vevUb30VxdpjKqFXd/UT9GquJOjcrObBS+H69u1PFwdtzMpht0nz+JoM1mo27t4tMsPnb9cPqxDw1/jA/mV9B1tNRXGteSOJ/0X0HzfcnP8Lgi0lO+usRCnEUoj0Bquq5yMkfcNtCiocg=="
+            # "sign": self.url_encode(sign).decode()
         }
         encode = ''.join(str(info_token).replace('\'', '"').split()).encode()
         compress = zlib.compress(encode)
@@ -336,22 +339,31 @@ class MeiTuan:
         # 转为字符串
         token = str(b_encode, encoding='utf-8')
         url = 'https://ihotel.meituan.com/group/v1/yf/productDetail?_token={}&uuid=&iuuid={}&userid=&utm_medium=touch&version_name=999.9&platformid=1'.format(
-            token, self.cookie_data['iuuid'])
+            token, self.taken['uuid'])
         headers = {
             "Accept-Encoding": "gzip, deflate, br",
             "Accept-Language": "zh-CN,zh;q=0.9",
             "Connection": "keep-alive",
             "Content-Length": "580",
             "Content-Type": "application/json; charset=UTF-8",
-            "Cookie": "IJSESSIONID={}; iuuid={}; latlng=39.909948%2C116.47318%2C1593337625721; ci=1; cityname=%E5%8C%97%E4%BA%AC; ndr=i.meituan.com; _lxsdk_cuid=172fa52bcf8c8-0a349c0458845d-5437971-4a640-172fa52bcf8c8; _lxsdk=D67E8E57738EC6EDA0BA0DB2A0B0A0FF55C7805D71D9CD9D36674F166EECDC33; _lxsdk_s=172fa52bb4f-f46-a04-39c%7C%7C46".format(self.cookie_data['IJSESSIONID', self.cookie_data['iuuid']]),
+            "Cookie": 'IJSESSIONID=gfacp96sy7t01gt51v2dfjcvt; iuuid=4F0FB0C356569C1805577BCCD27C5B2C726AD8FBEB125CADEAA07682C30567D0; ci=1; cityname=%E5%8C%97%E4%BA%AC; _lxsdk_cuid=172ff3c3e7bc8-0f345a816c71d8-31607403-13c680-172ff3c3e7bc8; _lxsdk=4F0FB0C356569C1805577BCCD27C5B2C726AD8FBEB125CADEAA07682C30567D0; ndr=i.meituan.com; _lx_utm=utm_source%3DBaidu%26utm_medium%3Dorganic; uuid=632126ab7ef54f75aa51.1593420298.1.0.0; backurl=https://i.meituan.com; mtcdn=K; __utma=74597006.723838067.1593422538.1593422538.1593422538.1; __utmc=74597006; __utmz=74597006.1593422538.1.1.utmcsr=(direct)|utmccn=(direct)|utmcmd=(none); isid=F56CF4C479FD9EB3BD1E13BAAF808F48; oops=_uN-nu2D6Mgv1uXjWNOwghZZYVoAAAAA5goAAA0WoGA7ok_l5m1nyzubfYOC5DUjcHhKCv6UO1mSVuigSPU3xRH00S0NecZc0ULa9A; u=1890343900; logintype=fast; ci3=1; latlng=40.14553,116.294254,1593423517037; i_extend=C085021465567978133866654328195751632659_g1E133379464095117507629657943452603430263_c0_e3955758044519839236_a%e9%9d%99%e6%98%a5%e5%9b%ad%e5%ae%be%e9%a6%86_b400203_o1_dhotelpoitagb_k1002_f1169302Gimthomepagecategory120__xhotelhomepage__yselect__zday; _lxsdk_s=17302ee3d7a-c5a-dc1-8a6%7C%7C7',
             "Host": "ihotel.meituan.com",
             "Origin": "https://i.meituan.com",
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1"
 
         }
-        rep = requests.post(url, data=json.dumps(datainfo), headers=headers)
-        sellPrice = json.loads(rep.text)['data']['sellPrice']
+        i = 0
+        while i < 5:
+            try:
+                rep = requests.post(url, data=json.dumps(datainfo), headers=headers, proxies={'https': self.conn.randomOneIp('proxy:new_ip_list')})
+                sellPrice = int(json.loads(rep.text)['data']['sellPrice'])
+                break
+            except:
+                i += 1
         print(sellPrice)
+        if int(avprice) == sellPrice:
+            print(n)
+        return sellPrice
 
     def spider(self, data_url, urlid):
         cookie = self.get_cookie()
@@ -426,7 +438,7 @@ class MeiTuan:
         scoreItemList = data['Data']['scoreItemList']
         return score, scoreItemList
 
-    def get_uuid1(self):
+    def get_uuid1(self, proxies):
         url = 'https://bj.meituan.com/'
         headers = {
             'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1',
@@ -434,7 +446,7 @@ class MeiTuan:
         session = requests.session()
         while 1:
             try:
-                session.get(url, headers=headers)
+                session.get(url, headers=headers, proxies=proxies)
                 html_set_cookie = requests.utils.dict_from_cookiejar(session.cookies)
                 cookie_data = {
                     "IJSESSIONID": html_set_cookie['IJSESSIONID'],
@@ -450,7 +462,7 @@ class MeiTuan:
     def run(self):
         urlList = [url for url in self.database.meituan_url.find()]
         j = 0
-        for hotel in urlList:
+        for hotel in urlList[290:]:
             j += 1
             urlid = hotel['_id']
             hotel_name = hotel['hotel_name']
@@ -460,7 +472,6 @@ class MeiTuan:
             hotel_id = ''.join(re.findall(r"\d+", ordUrl))
             if hotel_id != '':
                 score, scoreItemList = self.get_grade(hotel_id)
-                self.cookie_data = self.get_uuid1()
                 try:
                     self.taken = self.get_taken(hotel_name, hotel_id, hotelId, rivalId, score, scoreItemList)
                 except:
