@@ -8,6 +8,8 @@ import requests
 import datetime
 import time
 from lxml import etree
+from pymongo import *
+import re
 
 
 def f_token(token):
@@ -17,7 +19,7 @@ def f_token(token):
     print(token_string)
 
 
-def encode_token(id):
+def encode_token(hotel_id):
     t=time.time()
     ts=int(round(t * 1000))
     token_dict={
@@ -28,7 +30,7 @@ def encode_token(id):
         "brVD":[1125,2436],
         "brR":[[375,812],[375,812],24,24],
         "bI":[
-            "https://i.meituan.com/awp/h5/hotel/poi/deal.html?poiId={}&cityId=1&startTime=1593964800000&endTime=1594051200000&ste=_b400200&ct_poi=224486476820479630362180640600628787555_c0_e649767168325837266_a%25e5%258c%2597%25e4%25ba%25ac%25e5%25b8%2582%25e9%259d%2599%25e6%2598%25a5%25e5%259b%25ad%25e5%25ae%25be%25e9%25a6%2586_b400200_o1_dhotelpoitagb_k1002&type=1&zlFlag=true".format(id['id']),
+            "https://i.meituan.com/awp/h5/hotel/poi/deal.html?poiId={}&cityId=1&startTime=1593964800000&endTime=1594051200000&ste=_b400200&ct_poi=224486476820479630362180640600628787555_c0_e649767168325837266_a%25e5%258c%2597%25e4%25ba%25ac%25e5%25b8%2582%25e9%259d%2599%25e6%2598%25a5%25e5%259b%25ad%25e5%25ae%25be%25e9%25a6%2586_b400200_o1_dhotelpoitagb_k1002&type=1&zlFlag=true".format(hotel_id),
             ""
         ],
         "mT":[],
@@ -74,7 +76,7 @@ def get_uuid():
             pass
 
 def get_html(token,iuuid):
-    url='https://ihotel.meituan.com/group/v1/yf/list/{}?utm_medium=touch&version_name=999.9&platformid=1&start=1593964800000&end=1594051200000&type=1&lat=40.14553&lng=116.294254&gpsCityId=1&cityId=1&poi=1169302&uuid=632126ab7ef54f75aa51.1593420298.1.0.0&iuuid={}&userid=1890343900&propagateData&_token={}'.format(id['id'],cookie_data['iuuid'],token)
+    url='https://ihotel.meituan.com/group/v1/yf/list/{}?utm_medium=touch&version_name=999.9&platformid=1&start=1594224000000&end=1594310400000&type=1&lat=40.14553&lng=116.294254&gpsCityId=1&cityId=1&poi=1169302&uuid=632126ab7ef54f75aa51.1593420298.1.0.0&iuuid={}&userid=1890343900&propagateData&_token={}'.format(hotel_id,cookie_data['iuuid'],token)
     headers={
         "Accept-Encoding":"gzip, deflate, br",
         "Accept-Language":"zh-CN,zh;q=0.9",
@@ -167,12 +169,17 @@ if __name__ == '__main__':
             {"name":"如家（北京西单大悦城店）","id":"2451514"},
             {"name": "北京市静春园宾馆", "id": "1169302"},
         ]
-
-        for id in ids:
-            print('抓取--{}'.format(id['name']))
-            token=encode_token(id)
+        client = MongoClient('localhost', 27017)
+        database = client['su8']
+        urlList = [url for url in database.meituan_url.find()]
+        for id in urlList:
+            ordUrl = re.sub(r'\?(.*)?$', '', id['hotelUrl'])
+            hotel_id = ''.join(re.findall(r"\d+", ordUrl))
+            print('抓取--{}'.format(id['hotel_name']))
+            token=encode_token(hotel_id)
             cookie_data=get_uuid()
             data=get_html(token,cookie_data)
+            print(data)
             print(cookie_data['iuuid'])
             get_info(data)
             time.sleep(3)
