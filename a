@@ -1,7 +1,263 @@
-{"hotelId":2298641,"checkinDate":"2020-07-24","checkoutDate":"2020-07-25","cityId":1,"isOversea":0,"payType":0,"filterItemList":[],"minpPriceInfo":"{\"icp\":0,\"ipd\":0,\"isopenpricetolerate\":1,\"minPriceDetailInfo\":\"\",\"minpriceroom\":{\"avgprice\":161.0,\"cashbackamount\":0.0,\"couponamount\":0.0,\"currency\":\"RMB\",\"iscanreserve\":1,\"isshadow\":1,\"isusedcashback\":1,\"isusedcoupon\":-1,\"reductionamount\":0.0,\"roomid\":736307613,\"shadowId\":1030003201,\"taxfee\":0.0},\"pageid\":\"10650026616\",\"refreshed\":false,\"searchcandidate\":{\"bedtype\":\"\",\"breakfast\":-1,\"childs\":[],\"person\":0,\"segmentationno\":0,\"showtype\":0},\"timestamp\":1.595581883109E12,\"traceid\":\"100014036-129d9674-6fb5-444f-a371-7ec0300328c3\",\"ttype\":0}","veilDifPriceInfo":"","isMorning":0,"WechatTimeLimitPromoSwitch":'false',
- "session":{"key":"febd696c1aeab9e8f01004ce3ab9035123d3cb506e33e33ecb1b94baa8ec67d4","sessionKey":"8c167ec8-620f-4725-b2a5-23026915f455"},
- "head":{"cid":"09031030211353449876","ctok":"","cver":"","lang":"01","sid":"","syscode":"30","auth":"E5D4FAA8C7E3BD986F2916B05A7C0799C2414671666294E03BD8D6AADA46CEE6","sauth":"","extension":[{"name":"sdkversion","value":"NA"},{"name":"openid","value":"429b3a649518b6ff2d16d16cb1cd98975d18523873d1ed81"},{"name":"pageid","value":"10650028227"},{"name":"supportWebP","value":"false"},{"name":"ubt","value":"{\"vid\":\"1565166138308.tylcnr\",\"sid\":51,\"pvid\":1571,\"ts\":1595581899040,\"create\":1565166138308,\"pid\":\"10320654891\"}"},{"name":"appId","value":"2017081708237081"},{"name":"aid","value":"263128"},{"name":"sid","value":"712075"}]}}
+import re
+from pymongo import *
+import requests
+import json
+import time
+import random
+import datetime
+import threading
+from bs4 import BeautifulSoup
+from copy import deepcopy
+from su8 import connRedis
 
-{"hotelId":2298641,"checkinDate":"2020-07-24","checkoutDate":"2020-07-25","cityId":1,"isOversea":0,"payType":0,"filterItemList":[],"minpPriceInfo":"{\"icp\":0,\"ipd\":0,\"isopenpricetolerate\":1,\"minPriceDetailInfo\":\"\",\"minpriceroom\":{\"avgprice\":161.0,\"cashbackamount\":0.0,\"couponamount\":0.0,\"currency\":\"RMB\",\"iscanreserve\":1,\"isshadow\":1,\"isusedcashback\":1,\"isusedcoupon\":-1,\"reductionamount\":0.0,\"roomid\":736307613,\"shadowId\":1030003201,\"taxfee\":0.0},\"pageid\":\"10650026616\",\"refreshed\":false,\"searchcandidate\":{\"bedtype\":\"\",\"breakfast\":-1,\"childs\":[],\"person\":0,\"segmentationno\":0,\"showtype\":0},\"timestamp\":1.595582052319E12,\"traceid\":\"100014036-0bd9339e-7795-4e00-90c3-091661e8fb86\",\"ttype\":0}","veilDifPriceInfo":"","isMorning":0,"WechatTimeLimitPromoSwitch":"false",
- "session":{"key":"4c97cd71e901ee8ea26353bcbde7e557f52a5c2de5f7ef61bd6dc27e0e492bd5","sessionKey":"2b78f5f8-0401-4e86-b261-71e7d7a4b677"},
- "head":{"cid":"09031030211353449876","ctok":"","cver":"","lang":"01","sid":"","syscode":"30","auth":"388191E0872156090F1033874D39CC104D3993D811DC765F46C983FC7435BDD1","sauth":"","extension":[{"name":"sdkversion","value":"NA"},{"name":"openid","value":"429b3a649518b6ff2d16d16cb1cd98975d18523873d1ed81"},{"name":"pageid","value":"10650028227"},{"name":"supportWebP","value":"false"},{"name":"ubt","value":"{\"vid\":\"1565166138308.tylcnr\",\"sid\":51,\"pvid\":1589,\"ts\":1595582067092,\"create\":1565166138308,\"pid\":\"10320654891\"}"},{"name":"appId","value":"2017081708237081"},{"name":"aid","value":"263128"},{"name":"sid","value":"712075"}]}}
+
+class Ctrip(threading.Thread):
+    def __init__(self, day, thread_name):
+        threading.Thread.__init__(self)
+        self.day = day
+        self.thread_name = thread_name
+        # 链接mongo 数据库
+        client = MongoClient('120.27.195.31', 40010)
+        db_name = 'v3data'
+        self.db = client[db_name]
+        self.conn = connRedis.OPRedis()  # 链接代理
+        # 隧道服务器
+        self.tunnel_host = "tps136.kdlapi.com"
+        self.tunnel_port = "15818"
+        # 隧道id和密码
+        self.tid = "t16948189012577"
+        self.password = "jj5bkto1"
+        self.proxies = {
+            "http": "http://%s:%s@%s:%s/" % (self.tid, self.password, self.tunnel_host, self.tunnel_port),
+            "https": "http://%s:%s@%s:%s/" % (self.tid, self.password, self.tunnel_host, self.tunnel_port)
+        }
+
+    def get_data(self, start_date, end_date, hotel_name, ordUrl, hotel_Id, hotelId, rivalId):
+        """
+        发送请求 获取 json 数据
+        :param hotelId: 酒店Id
+        :return:
+        """
+        hotel_list = []
+        sourcelist = []
+        # 发送post 请求获取酒店信息
+        alipayMiniMark = [
+            "cIbeYLqEiNjMPB/5mnSbxxxk9j3BNIfz31OAtuVhJW6xXZm3e+MPw6GvyL5NkCHcK4IZxi1jZSYYrZqHeUI+AdTDJvAaLImKdeQK2SEQG4o=",
+            'cIbeYLqEiNjMPB/5mnSbxxAW0pJl0oXJLr/F9T/L/NpNVRdYq1S4JkmrG+FmOQspuvyTzKE/ByJrsAQjIBeuplUXeurQdKG4qselx7kYVaI=',
+            "cIbeYLqEiNjMPB/5mnSbx+CasP0PviZ6HSDNBSNnGY8pSszthHRJdIcBowcM9XvFgHIc/1f1EQScGmPfKZLp3OTEinAjIC8NvHiB56YbgKo=",
+        ]
+        headers = {
+            "Host": "m.ctrip.com",
+            "Accept": "*/*",
+            "Accept-Charset": "utf-8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Language": "zh-cn",
+            "x-alipay-openid": "774d0c857485370614d47477664647517780d1734cc87302",
+            "Content-Type": "application/json",
+            "Content-Length": "1680",
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 13_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/17D50 Ariver/1.0.13 AliApp(AP/10.1.99.6000) Nebula WK RVKType(0) AlipayDefined(nt:WIFI,ws:414|832|2.0) AlipayClient/10.1.99.6000 Language/zh-Hans Region/CN NebulaX/1.0.0",
+            # "User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 10_1 like Mac OS X) AppleWebKit/602.2.14 (KHTML, like Gecko) Version/10.0 MQQBrowser/8.8.2 Mobile/14B72c Safari/602.1 MttCustomUA/2 QBWebViewType/1 WKType/1",
+            "Referer": "https://2017081708237081.hybrid.alipay-eco.com/2017081708237081/0.2.2007211444.7/index.html#pages/hotel/detail/index?__appxPageId=108&biz=1&id=45900124&inday=2020-07-29&outday=2020-07-30&tzone=0&veilDifPriceInfo=",
+            "alipayMiniMark": random.choice(alipayMiniMark),
+            "Connection": "keep-alive",
+            "Cookie": ""
+        }
+        url = 'https://m.ctrip.com/restapi/soa2/14605/getaroomlist'
+        data = {"hotelId": hotel_Id, "checkinDate": "2020-07-30", "checkoutDate": "2020-07-31", "cityId": 1,
+                "isOversea": 0, "payType": 0, "filterItemList": [],
+                "minpPriceInfo": "{\"adtraceid\":\"H4sIAAAAAAAAAOM4s2/5mZ16AowG7B6MAYxRzIZWhgDhV3lnFAAAAA==\",\"icp\":0,\"ipd\":0,\"isopenpricetolerate\":1,\"minPriceDetailInfo\":\"\",\"minpriceroom\":{\"avgprice\":328.0,\"cashbackamount\":0.0,\"couponamount\":0.0,\"currency\":\"RMB\",\"iscanreserve\":1,\"isshadow\":0,\"isusedcashback\":1,\"isusedcoupon\":-1,\"reductionamount\":0.0,\"roomid\":559873005,\"shadowId\":0,\"taxfee\":0.0},\"pageid\":\"10650026616\",\"refreshed\":false,\"searchcandidate\":{\"bedtype\":\"\",\"breakfast\":-1,\"childs\":[],\"person\":0,\"segmentationno\":0,\"showtype\":0},\"timestamp\":1.596008816734E12,\"traceid\":\"100014036-adc1edea-7c6c-4cf3-8892-6edbf7bb86a7\",\"ttype\":0}",
+                "veilDifPriceInfo": "", "isMorning": 0, "WechatTimeLimitPromoSwitch": "false",
+                "session": {"key": "2b22c9d317a6dcd2fe7c1fea6386e80cc3061554632b0ae1020ba5337144f40b",
+                            "sessionKey": "66749b3c-65e1-430e-8f88-a260b644a934"},
+                "head": {"cid": "09031018211855083233", "ctok": "", "cver": "", "lang": "01", "sid": "",
+                         "syscode": "30", "auth": "E66F4BE63F74CD87862E56396A2DE736844841F2DD3784829E5D7582AE053E8C",
+                         "sauth": "", "extension": [{"name": "sdkversion", "value": "NA"}, {"name": "openid",
+                                                                                            "value": "774d0c857485370614d47477664647517780d1734cc87302"},
+                                                    {"name": "pageid", "value": "10650028227"},
+                                                    {"name": "supportWebP", "value": "false"}, {"name": "ubt",
+                                                                                                "value": "{\"vid\":\"1595991828377.7nvuie\",\"sid\":3,\"pvid\":104,\"ts\":1596008832120,\"create\":1595991828377,\"pid\":\"10320654891\"}"},
+                                                    {"name": "appId", "value": "2017081708237081"},
+                                                    {"name": "aid", "value": "263128"},
+                                                    {"name": "sid", "value": "712075"}]}}
+        i = 0
+        while i < 5:
+            try:
+                rep = requests.post(url, data=json.dumps(data), headers=headers)
+                print(rep.text)
+                data = json.loads(rep.text)
+                break
+            except:
+                i += 1
+                print("酒店: {}请求超时,重新请求, 请求链接:{}".format(hotel_name, url))
+                data = {'ResponseStatus': {'Ack': False}}
+        errorCode = data['ResponseStatus']['Ack']
+        if errorCode == 'Success':
+            if len(data['baseRoomList']):
+                roomList = data['baseRoomList']
+                grade = self.getGrade(hotel_Id)
+                for room in roomList:
+                    # 酒店名  房型
+                    item = {'hotel_name': hotel_name}
+                    sourceitem = {'hotel_name': hotel_name}
+                    sourceitem['totalScore'] = grade['statisticInfo']['ratingAll']
+                    sourceitem['hygieneScore'] = grade['statisticInfo']['healthPoint']
+                    sourceitem['environmentalScore'] = grade['statisticInfo']['environmentPoint']
+                    sourceitem['serviceScore'] = grade['statisticInfo']['servicePoint']
+                    sourceitem['facilitiesScore'] = grade['statisticInfo']['facilityPoint']
+                    item['hotel_id'] = int(hotelId)
+                    sourceitem['hotel_id'] = int(hotelId)
+                    item['rival_id'] = int(rivalId)
+                    sourceitem['rival_id'] = int(rivalId)
+                    rpList = room['subRoomList']
+                    for rp in rpList:
+                        if rp['name'] == "(钟点房)":
+                            item['room_type'] = room['name']+'(钟点房)'
+                        elif rp['hourInfoName'] != '':
+                            item['room_type'] = room['name']+'('+rp['hourInfoName']+')'
+                        else:
+                            item['room_type'] = room['name']
+                        prod_name = ''  # 产品名称
+                        for r in rp['promotionTagList']:
+                            try:
+                                if r['name'] == '每日特惠':
+                                    prod_name += "(" + r['name'] + ")"
+                            except:
+                                # 无产品名称
+                                continue
+                        if prod_name == '':
+                            prod_name = rp['breakfast'] + rp['bed'] + str(rp['maxNum']) + '人'
+                        else:
+                            prod_name = rp['breakfast'] + rp['bed'] + str(rp['maxNum']) + '人'+ prod_name
+                        if rp['name'] == "(5间起订)":
+                            prod_name = prod_name + '(5间起订)'
+                        item['prod_name'] = prod_name
+                        item['price'] = rp['originPrice']  # 酒店价格
+                        item['rebate'] = rp['price']  # 优惠价格
+                        item['channel'] = "携程"  # 渠道来源
+                        for r in rp['serviceTagList']:
+                            try:
+                                if r['name'] == '代理':
+                                    item['channel'] = r['name']
+                            except:
+                                # 无渠道来源
+                                continue
+                        item['can_book'] = rp['status']  # 房态　1:预订　else:满房
+                        item['breakfast'] = rp['breakfast']
+                        item['crawlDate'] = str(datetime.date.today())
+                        item['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                        sourceitem['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                        item['source'] = 'Ctrip-携程'  # 数据来源
+                        sourceitem['source'] = 'Ctrip-携程'  # 数据来源
+                        item['arrDate'] = start_date
+                        if item['can_book'] == 1:
+                            item['can_book'] = '预订'
+                        else:
+                            item['can_book'] = '房满'
+                        promotionTagList = rp['promotionTagList']
+                        j = 1
+                        item['listDiscount'] = []
+                        for promotionTag in promotionTagList:
+                            try:
+                                item['listDiscount'].append({'discountName':promotionTag['name'], 'price': re.findall(r'\d+', promotionTag['name'])[0]})
+                            except:
+                                pass
+                            j += 1
+                        print(item)
+                        hotel_list.append(deepcopy(item))
+                        sourcelist.append(deepcopy(sourceitem))
+                # self.save_data(hotel_list, sourcelist)
+                # 当前日期酒店数据抓取完毕　更新为1
+            else:
+                print(hotel_name, ordUrl, '无客房信息')
+
+        else:
+            print(hotel_name, ordUrl, '无店铺信息')
+
+    def save_data(self, hotel_list, sourcelist):
+        url = 'http://114.55.84.165:8081/api/super8/saveHotelData'
+        sourceurl = 'http://114.55.84.165:8081/api/super8/saveHotelScoreData'
+        headers = {'Content-Type': 'application/json'}
+        if len(hotel_list) != 0:
+            response = requests.post(url, headers=headers, json=hotel_list)
+            r = requests.post(url=sourceurl, headers=headers, json=sourcelist)
+            self.db.hotel_data.insert(hotel_list)
+            print(hotel_list)
+            print(sourcelist)
+            print(response.text)
+            print(r.text)
+
+    def getGrade(self, hotel_id,):
+        url = 'https://m.ctrip.com/restapi/soa2/14605/gethotelcomment'
+        # url = 'https://m.ctrip.com/webapp/hotel/hoteldetail/dianping/1737536.html?&fr=detail&atime=20200325&days=1'
+        data_json = {"hotelId": hotel_id,
+                     "head": {
+                        "cid": "09031030211353449876",
+                        "lang": "01",
+                        "syscode": "30",
+                        "auth": "2E92E1F3782941E5ADB7C31922E1B978EFD9B443F417BC144E196B6345D45CA5",
+                        # "extension": [{"name": "sdkversion", "value": "NA"}, {"name": "openid","value": "429b3a649518b6ff2d16d16cb1cd98975d18523873d1ed81"},{"name": "pageid", "value": "10650028227"},{"name": "supportWebP", "value": "false"}, {"name": "ubt","value": "{\"vid\":\"1565166138308.tylcnr\",\"sid\":38,\"pvid\":700,\"ts\":1586827720267,\"create\":1565166138308,\"pid\":\"1000000\"}"},{"name": "appId", "value": "2017081708237081"},{"name": "aid", "value": "263128"}, {"name": "sid", "value": "712075"}],
+                     },  # 登录状态
+                     "pageSize": 10,
+                     "needStatisticInfo": 1,
+                     "pageIndex": 1
+                     }
+        headers = {
+            # 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.132 Safari/537.36',
+            'x-alipay-openid': '429b3a649518b6ff2d16d16cb1cd98975d18523873d1ed81',
+            'Content-Type': 'application/json',
+            'Content-Length': '691',
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/17D50 Ariver/1.0.11 AliApp(AP/10.1.90.8000) Nebula WK RVKType(0) AlipayDefined(nt:WIFI,ws:375|603|2.0) AlipayClient/10.1.90.8000 Language/zh-Hans NebulaX/1.0.0',
+            'Connection': 'keep-alive',
+            'alipayMiniMark': 'ELm5VMibCrE2Zq/q2FLY0BdhXVhZV28dmr1BfXUzK7LP9S72IrzMOjqkTbFq4ucJHLuwJ0aDQZohsSxbfzET+hwOLnVfC67LtT2tekOrH6I=',
+            'Referer': 'https://2017081708237081.hybrid.alipay-eco.com/2017081708237081/0.2.2004031838.38/index.html#pages/hotel/detail/index?__appxPageId=105&biz=1&id=772191&inday=2020-04-14&outday=2020-04-15&tzone=0&veilDifPriceInfo='
+        }
+        i = 0
+        while i < 5:
+            try:
+                response = requests.post(url, json=data_json, headers=headers, proxies=self.proxies, timeout=5)
+                break
+            except:
+                i += 1
+        print(response.text)
+        data = json.loads(response.text)
+        return data
+
+    @staticmethod
+    def getTime(i):
+        today = datetime.date.today()
+        oneday = datetime.timedelta(days=i)
+        enday = datetime.timedelta(days=i + 1)
+        start_day = str(today + oneday)
+        end_date = str(today + enday)
+        return start_day, end_date
+
+    def run(self):
+        start_day, end_date = self.getTime(self.day)
+        hotelList = self.db.ctrip_url.find()
+        j = 0
+        for hotel in hotelList:
+            j += 1
+            print(self.thread_name+str(j))
+            if hotel['ctripUrl'] is not None:
+                hotel_name = hotel['hotel_name']
+                ordUrl = re.sub(r'\?(.*)?$', '', hotel['ctripUrl'])
+                hotel_id = ''.join(re.findall(r"\d+", ordUrl))
+                hotelId = hotel['hotel_id']
+                rivalId = hotel['rival_id']
+                print(start_day, end_date, hotel_name, hotel_id, ordUrl)
+                self.get_data(start_day, end_date, hotel_name, ordUrl, hotel_id, hotelId, rivalId)
+                time.sleep(3)
+        hotelList.close()
+
+
+if __name__ == '__main__':
+    t1 = Ctrip(1, 'thread1')
+    # t2 = Ctrip(2, 'thread2')
+    # t3 = Ctrip(3, 'thread3')
+    t1.start()
+    # t2.start()
+    # t3.start()
+    t1.join()
+    # t2.join()
+    # t3.join()
+
