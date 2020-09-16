@@ -1,26 +1,29 @@
+
+import pymysql
+import threading
+import requests, zlib, base64
+import json, jsonpath
+from pymongo import *
+import datetime
+import time
+from su8 import connRedis
+from copy import deepcopy
+from fake_useragent import UserAgent
+from su8 import meituan_getprice as get_price
 import re
 
-import redis
-from pymongo import *
-import requests
-import json
-import time
-import random
-import datetime
-import threading
-from bs4 import BeautifulSoup
-from copy import deepcopy
-import connRedis
 
-
-class Ctrip(threading.Thread):
-    def __init__(self, day):
+class MeiTuan:
+    def __init__(self, day, thread_id):
+        # self.connection = pymysql.connect(host='114.55.84.165', user='root', password='Super@inter3i', db="su8", charset='utf8mb4')
         self.day = day
-        # 链接mongo 数据库
-        client = MongoClient('120.27.195.31', 40010)
-        db_name = 'v3data'
-        self.db = client[db_name]
-        self.conn = connRedis.OPRedis()  # 链接代理
+        self.thread_id = thread_id
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.100 Safari/537.36',
+            "Connection": "close",
+        }
+        self.conn = connRedis.OPRedis()
+        self.taken = None
         # 隧道服务器
         self.tunnel_host = "tps136.kdlapi.com"
         self.tunnel_port = "15818"
@@ -29,248 +32,442 @@ class Ctrip(threading.Thread):
         self.password = "jj5bkto1"
         self.proxies = {
             "http": "http://%s:%s@%s:%s/" % (self.tid, self.password, self.tunnel_host, self.tunnel_port),
-            "https": "http://%s:%s@%s:%s/" % (self.tid, self.password, self.tunnel_host, self.tunnel_port)
+            # "https": "http://%s:%s@%s:%s/" % (self.tid, self.password, self.tunnel_host, self.tunnel_port)
         }
+        client = MongoClient('localhost', 27017)
+        self.database = client['su8']
+        self.cookie_data = {}
+        self.ua = UserAgent()
 
+        self.ordUrl = ''
 
-    def get_data(self, start_date, end_date, hotel_name, ordUrl, hotel_Id, hotelId, rivalId):
-        """
-        发送请求 获取 json 数据
-        :param hotelId: 酒店Id
-        :return:
-        """
+    def url_encode(self, data, stringify=False):
+        if (stringify == True):
+            base_data = zlib.compress(data.encode())
+            data = base64.b64encode(base_data)
+            return data
+        else:
+            data = json.dumps(data).replace(' ', "")
+            return self.url_encode(data, True)
+
+    @staticmethod
+    def url_decode(data):
+        """token解码"""
+        if isinstance(data, str):
+            data = base64.b64decode(data)
+            base_data = zlib.decompress(data)
+            return base_data
+
+    def get_uuid(self):
+        url='https://bj.meituan.com/'
+        headers={
+            'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 11_0 like Mac OS X) AppleWebKit/604.1.34 (KHTML, like Gecko) Version/11.0 Mobile/15A5341f Safari/604.1',
+        }
+        session = requests.session()
+        while 1:
+            try:
+                session.get(url, headers=headers, timeout=2, proxies={'https': self.conn.randomOneIp('proxy:new_ip_list')})
+                # session.get(url, headers=headers, timeout=2, proxies=self.proxies)
+                html_set_cookie = requests.utils.dict_from_cookiejar(session.cookies)
+                return html_set_cookie['iuuid']
+            except:
+                pass
+
+    def get_taken(self, hotel_name, hotel_id, hotelId, rivalId, score, scoreItemList):
+        time = datetime.datetime.now()
+        start_time = time + datetime.timedelta(days=self.day)
+        end_time = time + datetime.timedelta(days=self.day+1)
+        start = int(start_time.timestamp() * 1000)
+        end = int(end_time.timestamp() * 1000)
+        taken = {}
+        taken["name"] = hotel_name
+        taken["poiId"] = hotel_id
+        taken['hotelId'] = hotelId
+        taken['rivalId'] = rivalId
+        taken['totalScore'] = score
+        taken['hygieneScore'] = scoreItemList[3]['score']
+        taken['serviceScore'] = scoreItemList[0]['score']
+        taken['placeScore'] = scoreItemList[2]['score']
+        taken['facilitiesScore'] = scoreItemList[1]['score']
+        taken["start"] = start
+        taken["end"] = end
+        taken["uuid"] = self.get_uuid()
+        return taken
+
+    def get_tokon(self):
+        time = int(datetime.datetime.now().timestamp() * 1000)
+        # 生成sign的值，并得到_token字典
+        sign = 'antiRepCityId=1&antiRepLocateCityId=1&antiRepPlatform=Android&end={}&fromOffline=false&lat=40.032038&lng=116.305609&mtShareId=&openId=odPDr0N6p3m8MAZM-h960Y7BAejU&' \
+               'poiId={}' \
+               '&programName=hotel&propagateData=undefined&sdkVersion=8.7.0&start={}&type=1' \
+               '&utm_medium=WEIXINPROGRAM&uuid={}' \
+               '&version_name=10.14.800&wechatVersion=7.0.8'.format(self.taken['end'], self.taken['poiId'], self.taken['start'], self.taken["uuid"])
+        _tokon = {
+            "rId": 100038,
+            "ts": time,
+            "cts": time + 13,
+            "brVD": [360, 574],
+            "brR": [[720, 1148], [720, 1148], 24, 24],
+            "bI": ["pages/poi/poi",
+                   "pages/list/index"],
+            "mT": [],
+            "kT": [],
+            "aT": [],
+            "tT": [],
+            "sign": self.url_encode(sign).decode()
+        }
+        return _tokon
+
+    def get_idPriceDict(self, room_type_list, urlid):
         hotel_list = []
-        sourcelist = []
-        # 发送post 请求获取酒店信息
-        alipayMiniMark = [
-            "cIbeYLqEiNjMPB/5mnSbxxxk9j3BNIfz31OAtuVhJW6xXZm3e+MPw6GvyL5NkCHcK4IZxi1jZSYYrZqHeUI+AdTDJvAaLImKdeQK2SEQG4o=",
-            'cIbeYLqEiNjMPB/5mnSbxxAW0pJl0oXJLr/F9T/L/NpNVRdYq1S4JkmrG+FmOQspuvyTzKE/ByJrsAQjIBeuplUXeurQdKG4qselx7kYVaI=',
-            "cIbeYLqEiNjMPB/5mnSbx+CasP0PviZ6HSDNBSNnGY8pSszthHRJdIcBowcM9XvFgHIc/1f1EQScGmPfKZLp3OTEinAjIC8NvHiB56YbgKo=",
-        ]
-        headers = {
-            "Host": "m.ctrip.com",
-            "Accept": "*/*",
-            "Accept-Charset": "utf-8",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Accept-Language": "zh-cn",
-            "x-alipay-openid": "774d0c857485370614d47477664647517780d1734cc87302",
-            "Content-Type": "application/json",
-            "Content-Length": "1680",
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 13_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/17D50 Ariver/1.0.13 AliApp(AP/10.1.99.6000) Nebula WK RVKType(0) AlipayDefined(nt:WIFI,ws:414|832|2.0) AlipayClient/10.1.99.6000 Language/zh-Hans Region/CN NebulaX/1.0.0",
-            # "User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 10_1 like Mac OS X) AppleWebKit/602.2.14 (KHTML, like Gecko) Version/10.0 MQQBrowser/8.8.2 Mobile/14B72c Safari/602.1 MttCustomUA/2 QBWebViewType/1 WKType/1",
-            "Referer": "https://2017081708237081.hybrid.alipay-eco.com/2017081708237081/0.2.2007211444.7/index.html#pages/hotel/detail/index?__appxPageId=108&biz=1&id=45900124&inday=2020-07-29&outday=2020-07-30&tzone=0&veilDifPriceInfo=",
-            "alipayMiniMark": random.choice(alipayMiniMark),
-            "Connection": "keep-alive",
-            "Cookie": ""
+        item = {}
+        sourceitem = {}
+        token = get_price.encode_token(self.taken["poiId"])
+        cookie_data, proxies = get_price.get_uuid()
+        start_time, end_time = self.get_date()
+        data = get_price.get_html(token, cookie_data, proxies, self.taken["poiId"], start_time, end_time)
+        price_list = get_price.get_info(data)
+        if price_list == []:
+            pass
+        item['hotel_name'] = self.taken['name']
+        sourceitem['hotel_name'] = self.taken['name']
+        sourceitem['totalScore'] = self.taken['totalScore']
+        sourceitem['hygieneScore'] = self.taken['hygieneScore']
+        sourceitem['serviceScore'] = self.taken['serviceScore']
+        sourceitem['placeScore'] = self.taken['placeScore']
+        sourceitem['facilitiesScore'] = self.taken['facilitiesScore']
+        item['rebate'] = '0'
+        item['hotel_id'] = int(self.taken['hotelId'])
+        sourceitem['hotel_id'] = int(self.taken['hotelId'])
+        item['rival_id'] = int(self.taken['rivalId'])
+        sourceitem['rival_id'] = int(self.taken['rivalId'])
+        item['source'] = "Meituan-美团"
+        sourceitem['source'] = "Meituan-美团"
+        item['crawlDate'] = str(datetime.date.today())
+        item['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        sourceitem['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        for room_type in room_type_list:
+            item['room_type'] = room_type['goodsName']
+            room_id = room_type['goodsId']
+            avprice = room_type['averagePrice']
+            try:
+                price = int(price_list[room_id])/100
+            except:
+                print('无价格')
+                # self.database.meituan_url.insert(
+                #     {"hotel_name": self.taken['name'], "hotel_id": item['hotel_id'], "rival_id": item['rival_id'],
+                #      "hotelUrl": self.ordUrl})
+                return False
+            if avprice == price:
+                print('价格错误')
+                self.database.meituan_url.insert({"hotel_name": self.taken['name'], "hotel_id": item['hotel_id'], "rival_id": item['rival_id'], "hotelUrl": self.ordUrl})
+                return False
+            else:
+                item['price'] = int(price_list[room_id]) / 100
+            if room_type['tagName'] != '1':
+                item['channel'] = room_type['tagName']
+            else:
+                item['channel'] = "美团"
+            if item['channel'] is None:
+                item['channel'] = "美团"
+            item['breakfast'] = room_type['breakfast']
+            content = room_type['goodsBookInfos'][0]['content']
+            prod1 = ''
+            for c in content:
+                prod1 += c['targetName']
+            prod = str(item['room_type'])
+            p1 = re.compile(r'[[](.*?)[]]', re.S)  # 最小匹配
+            prod = re.findall(p1, prod)
+            if prod == []:
+                item['prod_name'] = prod1
+            else:
+                item['prod_name'] = prod1 + str(prod)
+            can_book = room_type['fullRoomDesc']
+            if can_book == "满房":
+                item['can_book'] = room_type['fullRoomDesc']
+            else:
+                item['can_book'] = '预订'
+            start_day = self.get_crawtime(self.day)
+            item['arrDate'] = start_day
+            print(item)
+            hotel_list.append(deepcopy(item))
+        if len(hotel_list) != 0:
+            print(hotel_list)
+            print(sourceitem)
+            self.upload(hotel_list, [sourceitem], urlid)
+            self.database.meituan_data.insert(hotel_list)
+
+    def get_mergelist(self, room_type_list, urlid):
+        hotel_list = []
+        item = {}
+        sourceitem = {}
+        token = get_price.encode_token(self.taken["poiId"])
+        cookie_data, proxies = get_price.get_uuid()
+        start_time, end_time = self.get_date()
+        data = get_price.get_html(token, cookie_data, proxies, self.taken["poiId"], start_time, end_time)
+        price_list = get_price.get_info(data)
+        print(price_list)
+        if price_list == {}:
+            pass
+        item['hotel_name'] = self.taken['name']
+        sourceitem['hotel_name'] = self.taken['name']
+        sourceitem['totalScore'] = self.taken['totalScore']
+        sourceitem['hygieneScore'] = self.taken['hygieneScore']
+        sourceitem['serviceScore'] = self.taken['serviceScore']
+        sourceitem['placeScore'] = self.taken['placeScore']
+        sourceitem['facilitiesScore'] = self.taken['facilitiesScore']
+        item['rebate'] = '0'
+        item['hotel_id'] = int(self.taken['hotelId'])
+        sourceitem['hotel_id'] = int(self.taken['hotelId'])
+        item['rival_id'] = int(self.taken['rivalId'])
+        sourceitem['rival_id'] = int(self.taken['rivalId'])
+        item['source'] = "Meituan-美团"
+        sourceitem['source'] = "Meituan-美团"
+        item['crawlDate'] = str(datetime.date.today())
+        item['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        sourceitem['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        for room_type in room_type_list:
+            room_name = room_type['roomCellName']
+            aggregateGoods = room_type['aggregateGoods']
+            for aggregateGood in aggregateGoods:
+                item['room_type'] = room_name + aggregateGood['aggregateGoodName']
+                goods_id = aggregateGood['prepayGood']['goodsId']
+                avprice = int(aggregateGood['prepayGood']['averagePrice'])/100
+                try:
+                    price = int(price_list[goods_id]) / 100
+                except:
+                    print('无价格')
+                    # self.database.meituan_url.insert(
+                        # {"hotel_name": self.taken['name'], "hotel_id": item['hotel_id'], "rival_id": item['rival_id'],
+                        #  "hotelUrl": self.ordUrl})
+                    return False
+                if avprice == price:
+                    print('价格错误')
+                    self.database.meituan_url.insert(
+                        {"hotel_name": self.taken['name'], "hotel_id": item['hotel_id'], "rival_id": item['rival_id'],
+                         "hotelUrl": self.ordUrl})
+                    return False
+                else:
+                    item['price'] = int(price_list[goods_id]) / 100
+                if aggregateGood['prepayGood']['tagName'] != '1':
+                    item['channel'] = aggregateGood['prepayGood']['tagName']
+                else:
+                    item['channel'] = "美团"
+                if item['channel'] is None:
+                    item['channel'] = "美团"
+                item['breakfast'] = aggregateGood['prepayGood']['breakfast']
+                content = aggregateGood['prepayGood']['goodsBookInfos'][0]['content']
+                prod1 = ''
+                for c in content:
+                    prod1 += c['targetName']
+                prod = str(item['room_type'])
+                p1 = re.compile(r'[[](.*?)[]]', re.S)  # 最小匹配
+                prod = re.findall(p1, prod)
+                if prod == []:
+                    item['prod_name'] = prod1
+                else:
+                    item['prod_name'] = prod1 + str(prod)
+                can_book = aggregateGood['prepayGood']['fullRoomDesc']
+                if can_book == "满房":
+                    item['can_book'] = aggregateGood['prepayGood']['fullRoomDesc']
+                else:
+                    item['can_book'] = '预订'
+                start_day = self.get_crawtime(self.day)
+                item['arrDate'] = start_day
+                print(item)
+                hotel_list.append(deepcopy(item))
+        if len(hotel_list) != 0:
+            print(hotel_list)
+            print(sourceitem)
+            # self.upload(hotel_list, [sourceitem], urlid)
+            # self.database.meituan_data.insert(hotel_list)
+
+    def getPrice(self, poiId, goodsId, partnerId, roomId, avprice):
+        # proxies = {'https': self.conn.randomOneIp('proxy:new_ip_list')}
+        t = time.time()
+        ts = int(round(t * 1000))
+        checkInDate, checkOutDate = self.get_date()
+        datainfo = {
+            "checkInDate": checkInDate,
+            "checkOutDate": checkOutDate,
+            "lat": "39.909948",
+            "lng": "116.47318",
+            "gpsCityId": "1",
+            "cityId": "1",
+            "goodsId": goodsId,
+            "goodsType": 1,
+            "partnerId": partnerId,
+            "poiId": poiId,
+            "requestType": 0,
+            "noPersistent": 0,
+            "roomId": roomId,
+            "userid": -1,
+            "clientType": "touch",
+            "clientVersion": "999.9",
+            "propagateData": "{\"hap_key\":null,\"price\":\"+h+Rk9cShr2nypUrWlB0TQ==\",\"traceId\":\"8896148300185526626\",\"goodsStatus\":null,\"realGoodsStatus\":\"lIUtdvHM5mRi2ZKA4H37H0bpCJU6pdMcN8p0wH1HzgM=\",\"conId\":null,\"gs\":\"14VmSKUDV3qSoIOYNhKyHQ==\",\"contentTransparent\":null}"
         }
-        url = 'https://m.ctrip.com/restapi/soa2/14605/getaroomlist'
-        data = {"hotelId": hotel_Id, "checkinDate": "2020-07-30", "checkoutDate": "2020-07-31", "cityId": 1,
-                "isOversea": 0, "payType": 0, "filterItemList": [],
-                "minpPriceInfo": "{\"adtraceid\":\"H4sIAAAAAAAAAOM4s2/5mZ16AowG7B6MAYxRzIZWhgDhV3lnFAAAAA==\",\"icp\":0,\"ipd\":0,\"isopenpricetolerate\":1,\"minPriceDetailInfo\":\"\",\"minpriceroom\":{\"avgprice\":328.0,\"cashbackamount\":0.0,\"couponamount\":0.0,\"currency\":\"RMB\",\"iscanreserve\":1,\"isshadow\":0,\"isusedcashback\":1,\"isusedcoupon\":-1,\"reductionamount\":0.0,\"roomid\":559873005,\"shadowId\":0,\"taxfee\":0.0},\"pageid\":\"10650026616\",\"refreshed\":false,\"searchcandidate\":{\"bedtype\":\"\",\"breakfast\":-1,\"childs\":[],\"person\":0,\"segmentationno\":0,\"showtype\":0},\"timestamp\":1.596008816734E12,\"traceid\":\"100014036-adc1edea-7c6c-4cf3-8892-6edbf7bb86a7\",\"ttype\":0}",
-                "veilDifPriceInfo": "", "isMorning": 0, "WechatTimeLimitPromoSwitch": "false",
-                "session": {"key": "2b22c9d317a6dcd2fe7c1fea6386e80cc3061554632b0ae1020ba5337144f40b",
-                            "sessionKey": "66749b3c-65e1-430e-8f88-a260b644a934"},
-                "head": {"cid": "09031018211855083233", "ctok": "", "cver": "", "lang": "01", "sid": "",
-                         "syscode": "30", "auth": "E66F4BE63F74CD87862E56396A2DE736844841F2DD3784829E5D7582AE053E8C",
-                         "sauth": "", "extension": [{"name": "sdkversion", "value": "NA"}, {"name": "openid",
-                                                                                            "value": "774d0c857485370614d47477664647517780d1734cc87302"},
-                                                    {"name": "pageid", "value": "10650028227"},
-                                                    {"name": "supportWebP", "value": "false"}, {"name": "ubt",
-                                                                                                "value": "{\"vid\":\"1595991828377.7nvuie\",\"sid\":3,\"pvid\":104,\"ts\":1596008832120,\"create\":1595991828377,\"pid\":\"10320654891\"}"},
-                                                    {"name": "appId", "value": "2017081708237081"},
-                                                    {"name": "aid", "value": "263128"},
-                                                    {"name": "sid", "value": "712075"}]}}
+        # sign = "checkInDate={}&checkOutDate={}&cityId=1&clientType=touch&clientVersion=999.9&goodsId={}&goodsType=1&gpsCityId=1&lat=39.909948&lng=116.47318&noPersistent=0&partnerId={}&poiId={}&propagateData={}&requestType=0&roomId={}&userid=-1".format(checkInDate, checkOutDate, goodsId, partnerId, poiId, datainfo['propagateData'], roomId)
+        info_token = {
+            "rId": 100004,
+            "ver": "1.0.6",
+            "ts": ts,
+            "cts": ts + 20,
+            "brVD": [1242, 2208],
+            "brR": [[414, 736], [414, 736], 24, 24],
+            "bI": [
+                "https://i.meituan.com/awp/h5/hotel/poi/deal.html?poiId={}&cityId=1&startTime=1593302400000&endTime=1593388800000&ste=_b400200&ct_poi=224486476820479630362180640600628787555_c0_e649767168325837266_a%25e5%258c%2597%25e4%25ba%25ac%25e5%25b8%2582%25e9%259d%2599%25e6%2598%25a5%25e5%259b%25ad%25e5%25ae%25be%25e9%25a6%2586_b400200_o1_dhotelpoitagb_k1002&type=1&zlFlag=true".format(
+                    poiId), ""],
+            "mT": [],
+            "kT": [],
+            "aT": ["492,1847,UL", "1183,489,I", "581,1845,UL"],
+            "tT": [],
+            "aM": "",
+            "sign": "eJxVUVtPwyAY/S994GVOoXdMeHDTzOmm7qaJaWIIJW3TCgyoS2P879JuanzjO5xzvsPBYyVn9VxcU8uJD304hvHYT8EAP7b2P44Bq2w3zwkCrKm4sNtOcWJly8oT8My1qaQgGONzDAopc9PTgxBGCAdHYBAhUCgz/XFrqCWBU0CMwxQ0oiAIxedhEqAUCPnUmxrr7AkEimoruO5lGEYwQUDJqp9QjAPoA6WlooWL7aJT8pl5JVVvNe8y71K0TXOWeUpXjLsx80blaF1jtim1Lzq10y/NBG5XhGSeo1lNGZ/nAzGFSRy6aBBGEYyDJEnCgTO8Z2Opbc2fv+a0mf27yDwxmy4/9vevUb30VxdpjKqFXd/UT9GquJOjcrObBS+H69u1PFwdtzMpht0nz+JoM1mo27t4tMsPnb9cPqxDw1/jA/mV9B1tNRXGteSOJ/0X0HzfcnP8Lgi0lO+usRCnEUoj0Bquq5yMkfcNtCiocg=="
+            # "sign": self.url_encode(sign).decode()
+        }
+        encode = ''.join(str(info_token).replace('\'', '"').split()).encode()
+        compress = zlib.compress(encode)
+        # base64编码
+        b_encode = base64.b64encode(compress)
+        # 转为字符串
+        token = str(b_encode, encoding='utf-8')
+        url = 'https://ihotel.meituan.com/group/v1/yf/productDetail?_token={}&uuid=&iuuid={}&userid=&utm_medium=touch&version_name=999.9&platformid=1'.format(
+            token, self.taken['uuid'])
+        headers = {
+            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+            "Connection": "keep-alive",
+            "Content-Length": "580",
+            "Content-Type": "application/json; charset=UTF-8",
+            "Cookie": 'IJSESSIONID=9m70me70sqcd1uye3uktp3kz8; iuuid=1F72AE94A6A16DCFD2D458D5562C9911DAECB1B2A78D1BEA12C1C79BE9D09A60; latlng=40.14554%2C116.294266%2C1593687817419; ci=1; cityname=%E5%8C%97%E4%BA%AC; ndr=i.meituan.com; _lxsdk_cuid=1730f323d36c8-0d186edea7b133-5437971-4a574-1730f323d36c8; _lxsdk=1F72AE94A6A16DCFD2D458D5562C9911DAECB1B2A78D1BEA12C1C79BE9D09A60; _lx_utm=utm_source%3DBaidu%26utm_medium%3Dorganic; uuid=bc93151521c144b0b070.1593695466.1.0.0; i_extend=E246497815375644239994780023225049188913_c0_e8515323170603781308_a%e9%9d%99%e6%98%a5%e5%9b%ad%e5%ae%be%e9%a6%86_b400202_o1_dhotelpoitagb_k1002Gempty__xhotelhomepage__yselect__zday; _lxsdk_s=1732d49cabd-33a-f14-0c6%7C%7C20',
+            # "Cookie": "IJSESSIONID={}; iuuid={}; ci=1; cityname=%E5%8C%97%E4%BA%AC; _lxsdk_cuid=172ff3c3e7bc8-0f345a816c71d8-31607403-13c680-172ff3c3e7bc8; _lxsdk=4F0FB0C356569C1805577BCCD27C5B2C726AD8FBEB125CADEAA07682C30567D0; ndr=i.meituan.com; _lx_utm=utm_source%3DBaidu%26utm_medium%3Dorganic; uuid=632126ab7ef54f75aa51.1593420298.1.0.0; backurl=https://i.meituan.com; mtcdn=K; __utma=74597006.723838067.1593422538.1593422538.1593422538.1; __utmc=74597006; __utmz=74597006.1593422538.1.1.utmcsr=(direct)|utmccn=(direct)|utmcmd=(none); isid=F56CF4C479FD9EB3BD1E13BAAF808F48; oops=_uN-nu2D6Mgv1uXjWNOwghZZYVoAAAAA5goAAA0WoGA7ok_l5m1nyzubfYOC5DUjcHhKCv6UO1mSVuigSPU3xRH00S0NecZc0ULa9A; u=1890343900; logintype=fast; ci3=1; latlng=40.14553,116.294254,1593423517037; i_extend=C085021465567978133866654328195751632659_g1E133379464095117507629657943452603430263_c0_e3955758044519839236_a%e9%9d%99%e6%98%a5%e5%9b%ad%e5%ae%be%e9%a6%86_b400203_o1_dhotelpoitagb_k1002_f1169302Gimthomepagecategory120__xhotelhomepage__yselect__zday; _lxsdk_s=17302ee3d7a-c5a-dc1-8a6%7C%7C5".format(
+            #     self.cookie_data['IJSESSIONID'], self.cookie_data['iuuid']),
+            "Host": "ihotel.meituan.com",
+            "Origin": "https://i.meituan.com",
+            "User-Agent": self.ua.chrome
+
+        }
         i = 0
         while i < 5:
             try:
-                proxy = random_get_proxy()
-                proxies = {
-                    "https": "https://{0}".format(proxy),
-                    "http": "http://{0}".format(proxy),
-                }
-                print(proxy)
-                rep = requests.post(url, data=json.dumps(data), headers=headers,proxies=proxies)
-                print(rep.text)
-                data = json.loads(rep.text)
+                rep = requests.post(url, data=json.dumps(datainfo), headers=headers, proxies={'https': self.conn.randomOneIp('proxy:new_ip_list')}, timeout=3)
+                # rep = requests.post(url, data=json.dumps(datainfo), headers=headers, timeout=3)
+                sellPrice = int(json.loads(rep.text)['data']['sellPrice'])
                 break
             except:
                 i += 1
-                print("酒店: {}请求超时,重新请求, 请求链接:{}".format(hotel_name, url))
-                data = {'ResponseStatus': {'Ack': False}}
-        errorCode = data['ResponseStatus']['Ack']
-        if errorCode == 'Success':
-            if len(data['baseRoomList']):
-                roomList = data['baseRoomList']
-                grade = self.getGrade(hotel_Id)
-                for room in roomList:
-                    # 酒店名  房型
-                    item = {'hotel_name': hotel_name}
-                    sourceitem = {'hotel_name': hotel_name}
-                    sourceitem['totalScore'] = grade['statisticInfo']['ratingAll']
-                    sourceitem['hygieneScore'] = grade['statisticInfo']['healthPoint']
-                    sourceitem['environmentalScore'] = grade['statisticInfo']['environmentPoint']
-                    sourceitem['serviceScore'] = grade['statisticInfo']['servicePoint']
-                    sourceitem['facilitiesScore'] = grade['statisticInfo']['facilityPoint']
-                    item['hotel_id'] = int(hotelId)
-                    sourceitem['hotel_id'] = int(hotelId)
-                    item['rival_id'] = int(rivalId)
-                    sourceitem['rival_id'] = int(rivalId)
-                    rpList = room['subRoomList']
-                    for rp in rpList:
-                        if rp['name'] == "(钟点房)":
-                            item['room_type'] = room['name']+'(钟点房)'
-                        elif rp['hourInfoName'] != '':
-                            item['room_type'] = room['name']+'('+rp['hourInfoName']+')'
-                        else:
-                            item['room_type'] = room['name']
-                        prod_name = ''  # 产品名称
-                        for r in rp['promotionTagList']:
-                            try:
-                                if r['name'] == '每日特惠':
-                                    prod_name += "(" + r['name'] + ")"
-                            except:
-                                # 无产品名称
-                                continue
-                        if prod_name == '':
-                            prod_name = rp['breakfast'] + rp['bed'] + str(rp['maxNum']) + '人'
-                        else:
-                            prod_name = rp['breakfast'] + rp['bed'] + str(rp['maxNum']) + '人'+ prod_name
-                        if rp['name'] == "(5间起订)":
-                            prod_name = prod_name + '(5间起订)'
-                        item['prod_name'] = prod_name
-                        item['price'] = rp['originPrice']  # 酒店价格
-                        item['rebate'] = rp['price']  # 优惠价格
-                        item['channel'] = "携程"  # 渠道来源
-                        for r in rp['serviceTagList']:
-                            try:
-                                if r['name'] == '代理':
-                                    item['channel'] = r['name']
-                            except:
-                                # 无渠道来源
-                                continue
-                        item['can_book'] = rp['status']  # 房态　1:预订　else:满房
-                        item['breakfast'] = rp['breakfast']
-                        item['crawlDate'] = str(datetime.date.today())
-                        item['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                        sourceitem['crawlTime'] = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                        item['source'] = 'Ctrip-携程'  # 数据来源
-                        sourceitem['source'] = 'Ctrip-携程'  # 数据来源
-                        item['arrDate'] = start_date
-                        if item['can_book'] == 1:
-                            item['can_book'] = '预订'
-                        else:
-                            item['can_book'] = '房满'
-                        promotionTagList = rp['promotionTagList']
-                        j = 1
-                        item['listDiscount'] = []
-                        for promotionTag in promotionTagList:
-                            try:
-                                item['listDiscount'].append({'discountName':promotionTag['name'], 'price': re.findall(r'\d+', promotionTag['name'])[0]})
-                            except:
-                                pass
-                            j += 1
-                        print(item)
-                        print(item['listDiscount'])
-                        hotel_list.append(deepcopy(item))
-                        sourcelist.append(deepcopy(sourceitem))
-                # self.save_data(hotel_list, sourcelist)
-                # 当前日期酒店数据抓取完毕　更新为1
-            else:
-                print(hotel_name, ordUrl, '无客房信息')
+        print(sellPrice)
+        if int(avprice)/100 == sellPrice:
+            print(n)
+        return sellPrice
 
-        else:
-            print(hotel_name, ordUrl, '无店铺信息')
-
-    def save_data(self, hotel_list, sourcelist):
-        url = 'http://114.55.84.165:8081/api/super8/saveHotelData'
-        sourceurl = 'http://114.55.84.165:8081/api/super8/saveHotelScoreData'
-        headers = {'Content-Type': 'application/json'}
-        if len(hotel_list) != 0:
-            response = requests.post(url, headers=headers, json=hotel_list)
-            r = requests.post(url=sourceurl, headers=headers, json=sourcelist)
-            self.db.hotel_data.insert(hotel_list)
-            print(hotel_list)
-            print(sourcelist)
-            print(response.text)
-            print(r.text)
-
-    def getGrade(self, hotel_id,):
-        url = 'https://m.ctrip.com/restapi/soa2/14605/gethotelcomment'
-        # url = 'https://m.ctrip.com/webapp/hotel/hoteldetail/dianping/1737536.html?&fr=detail&atime=20200325&days=1'
-        data_json = {"hotelId": hotel_id,
-                     "head": {
-                        "cid": "09031030211353449876",
-                        "lang": "01",
-                        "syscode": "30",
-                        "auth": "2E92E1F3782941E5ADB7C31922E1B978EFD9B443F417BC144E196B6345D45CA5",
-                        # "extension": [{"name": "sdkversion", "value": "NA"}, {"name": "openid","value": "429b3a649518b6ff2d16d16cb1cd98975d18523873d1ed81"},{"name": "pageid", "value": "10650028227"},{"name": "supportWebP", "value": "false"}, {"name": "ubt","value": "{\"vid\":\"1565166138308.tylcnr\",\"sid\":38,\"pvid\":700,\"ts\":1586827720267,\"create\":1565166138308,\"pid\":\"1000000\"}"},{"name": "appId", "value": "2017081708237081"},{"name": "aid", "value": "263128"}, {"name": "sid", "value": "712075"}],
-                     },  # 登录状态
-                     "pageSize": 10,
-                     "needStatisticInfo": 1,
-                     "pageIndex": 1
-                     }
+    def spider(self, data_url, urlid):
         headers = {
-            # 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.132 Safari/537.36',
-            'x-alipay-openid': '429b3a649518b6ff2d16d16cb1cd98975d18523873d1ed81',
-            'Content-Type': 'application/json',
-            'Content-Length': '691',
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/17D50 Ariver/1.0.11 AliApp(AP/10.1.90.8000) Nebula WK RVKType(0) AlipayDefined(nt:WIFI,ws:375|603|2.0) AlipayClient/10.1.90.8000 Language/zh-Hans NebulaX/1.0.0',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+            'Cache-Control': 'max-age=0',
             'Connection': 'keep-alive',
-            'alipayMiniMark': 'ELm5VMibCrE2Zq/q2FLY0BdhXVhZV28dmr1BfXUzK7LP9S72IrzMOjqkTbFq4ucJHLuwJ0aDQZohsSxbfzET+hwOLnVfC67LtT2tekOrH6I=',
-            'Referer': 'https://2017081708237081.hybrid.alipay-eco.com/2017081708237081/0.2.2004031838.38/index.html#pages/hotel/detail/index?__appxPageId=105&biz=1&id=772191&inday=2020-04-14&outday=2020-04-15&tzone=0&veilDifPriceInfo='
+            'Host': 'ihotel.meituan.com',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+            'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 11_0 like Mac OS X) AppleWebKit/604.1.34 (KHTML, like Gecko) Version/11.0 Mobile/15A5341f Safari/604.1',
         }
         i = 0
-        while i < 5:
+        while i < 8:
             try:
-                response = requests.post(url, json=data_json, headers=headers, proxies=self.proxies, timeout=5)
+                response = requests.get(url=data_url, headers=headers, proxies={'https': self.conn.randomOneIp('proxy:new_ip_list')}, timeout=3)
+                data = json.loads(response.text)
                 break
             except:
                 i += 1
         print(response.text)
-        data = json.loads(response.text)
-        return data
+        if response.status_code == 200:
+            print('getlist:success')
+            try :
+                a = data['error']['code']
+                return []
+            except:
+                if data['goodsList'] is None:
+                    room_type_list = jsonpath.jsonpath(data, '$.mergeList.data')[0]
+                    return self.get_mergelist(room_type_list, urlid)
+                else:
+                    room_type_list = jsonpath.jsonpath(data, '$.goodsList.data')[0]
+                    return self.get_idPriceDict(room_type_list, urlid)
+        else:
+            return []
 
-    @staticmethod
-    def getTime(i):
+    def upload(self, hotel_list, sourcelist, urlid):
+        url = 'http://114.55.84.165:8081/api/super8/saveHotelData'
+        sourceurl = 'http://114.55.84.165:8081/api/super8/saveHotelScoreData'
+        headers2 = {'Content-Type': 'application/json',
+                    'Connection': 'close'}
+        res = requests.post(url, headers=headers2, json=hotel_list)
+        r = requests.post(url=sourceurl, headers=headers2, json=sourcelist)
+        print(r.text)
+        print(res.text)
+        self.database.meituan_url.update({'_id': urlid}, {'$set': {self.thread_id: 1}})
+
+    def get_crawtime(self, i):
         today = datetime.date.today()
         oneday = datetime.timedelta(days=i)
-        enday = datetime.timedelta(days=i + 1)
         start_day = str(today + oneday)
-        end_date = str(today + enday)
-        return start_day, end_date
+        return start_day
+
+    def get_date(self):
+        # today = datetime.date.today()
+        # oneday = datetime.timedelta(days=self.day)
+        # twoday = datetime.timedelta(days=self.day+1)
+        # start_day = str(today + oneday)
+        # end_day = str(today + twoday)
+        # return start_day, end_day
+        today = datetime.date.today()
+        oneday = datetime.timedelta(days=self.day)
+        twoday = datetime.timedelta(days=self.day+1)
+        start_day = str(today + oneday) + ' 00:00:00'
+        end_day = str(today + twoday) + ' 00:00:00'
+        start_time = int(time.mktime(time.strptime(start_day, "%Y-%m-%d %H:%M:%S"))) * 1000
+        end_time = int(time.mktime(time.strptime(end_day, "%Y-%m-%d %H:%M:%S"))) * 1000
+        return start_time, end_time
+
+    def get_grade(self, hotel_id):
+        url = 'https://ihotel.meituan.com/api/v2/comments/biz/poiReview?utm_medium=WEIXINPROGRAM&utm_campaign=entry%253DMTHotel_scene%253D1089&token=srfThs4CEOSKdhUU2o1j2-lclbsAAAAAyAkAACrh37E033qtnVnR7xaUg9JRpJR4ni56B0CvwVPuk6SOclypZrmXhTh2dF-RUESg2A&openId=odPDr0C3LQjKo5sKzDR4DC9sqvBY&userId=2643733635&userid=2643733635&uuid=3CA6484632F13ADF68BDB142B1418DF473D8BEB8F65DAB913BA372B31EDE5DF9&poiId={}&platform=2&querytype=4&openIdCipher=AwQAAABJAgAAAAEAAAAyAAAAPDBiGl7pKIztT2y7Z14kCpYqtcIELpyFo6%2BK73E32D2fcGISLoR08e%2BxsD0PxfuoQKh4c%2B8u0q%2B6bOi43wAAADgq8lpUtwrVXbkja9aLhpVgVf%2FlozK0lcP3JDt0zI4A01SRr0NXNeHfdKb3ZI8TxYuh2mPfhNs%2BQQ%3D%3D'.format(hotel_id)
+        response = requests.get(url, headers=self.headers, proxies=self.proxies)
+        data = json.loads(response.text)
+        score = data['Data']['score']
+        scoreItemList = data['Data']['scoreItemList']
+        print('get_grade success')
+        return score, scoreItemList
 
     def run(self):
-        start_day, end_date = self.getTime(self.day)
-        hotelList = self.db.ctrip_url.find()
+        urlList = [url for url in self.database.meituan_url.find()]
         j = 0
-        for hotel in hotelList:
-            try:
-                j += 1
-                print(j)
-                if hotel['ctripUrl'] is not None:
-                    hotel_name = hotel['hotel_name']
-                    ordUrl = re.sub(r'\?(.*)?$', '', hotel['ctripUrl'])
-                    hotel_id = ''.join(re.findall(r"\d+", ordUrl))
-                    hotelId = hotel['hotel_id']
-                    rivalId = hotel['rival_id']
-                    print(start_day, end_date, hotel_name, hotel_id, ordUrl)
-                    self.get_data(start_day, end_date, hotel_name, ordUrl, hotel_id, hotelId, rivalId)
-                time.sleep(random.uniform(2, 4))
-            except:
-                print(2)
-           # hotelList.close()
+        for hotel in urlList[0:]:
+            j += 1
+            urlid = hotel['_id']
+            hotel_name = hotel['hotel_name']
+            print(str(j)+':'+hotel_name)
+            hotelId, rivalId = int(hotel['hotel_id']), int(hotel['rival_id'])
+            self.ordUrl = re.sub(r'\?(.*)?$', '', hotel['hotelUrl'])
+            hotel_id = ''.join(re.findall(r"\d+", self.ordUrl))
+            if hotel_id != '':
+                score, scoreItemList = self.get_grade(hotel_id)
+                try:
+                    self.taken = self.get_taken(hotel_name, hotel_id, hotelId, rivalId, score, scoreItemList)
+                except:
+                    pass
+                if self.taken is not None:
+                    _tokon = self.get_tokon()
+                    token = self.url_encode(_tokon).decode()
+                    data_url = 'https://ihotel.meituan.com/productapi/v2/prepayList?&_token={}&end={}&start={}&poiId={}&uuid={}&type=1&utm_medium=baiduProgram&version_name=8.7.0'.format(
+                        token, self.taken["end"], self.taken["start"], self.taken["poiId"], self.taken["uuid"])
+                    print(data_url)
+                    self.spider(data_url, urlid)  # 爬虫主程序
+                    time.sleep(3)
 
-
-def random_get_proxy():
-    redis_key = "proxy:new_ip_list"
-    proxy = conn1.srandmember(redis_key)
-    proxy = proxy.decode('utf-8')
-    return proxy
 
 if __name__ == '__main__':
-    pool1 = redis.ConnectionPool(host='114.55.84.165', port=6379, db=0, password="FNldn.dgdj,gDN,34md")
-    conn1 = redis.StrictRedis(connection_pool=pool1)
-    spider_ctrip = Ctrip(1)
-    spider_ctrip.run()
-
-
+    print(str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    MeiTuan(1, 'thread1').run()
